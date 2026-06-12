@@ -26,4 +26,4 @@ serde_json = "1"
 time = "=0.3.47"
 reqwest = "0.13.4"
 tokio = { version = "1.52.3", features = ["full"] }
-grib = "0.15.6"
+grib = { version = "0.15.6", default-features = false }
