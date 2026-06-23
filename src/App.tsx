@@ -63,7 +63,7 @@ function App() {
           }}
           // 親の main が絶対配置で画面一杯になっているため、100% 指定で綺麗に収まります
           style={{ width: "100%", height: "100%" }}
-          mapStyle="https://demotiles.maplibre.org/style.json"
+          mapStyle="https://tiles.openfreemap.org/styles/liberty"
         />
       </main>
     </SidebarProvider>
