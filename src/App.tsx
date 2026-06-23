@@ -1,13 +1,23 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/app-sidebar"
+import { AppSidebar, PredictorFormValues } from "@/components/app-sidebar"
 import { Map } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { useState } from "react";
 
 
 function App() {
+  const [predictionData, setPredictionData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+
+  const handlePredict = async (values: PredictorFormValues) => {
+    setLoading(true)
+    // setPredictionData(result)
+    setLoading(false)
+  }
+
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar onSubmit={handlePredict} isLoading={loading} />
       <main className="absolute inset-0 w-screen h-screen z-0">
         <div className="absolute top-4 left-4 z-20">
           <SidebarTrigger className="bg-background border shadow-sm" />
