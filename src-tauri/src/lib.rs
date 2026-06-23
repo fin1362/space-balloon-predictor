@@ -17,17 +17,16 @@ use grib_reader::Atmosphere;
 use simulation::{SimConfig, Simulator, Trajectory};
 
 #[derive(Serialize)]
-struct BalloonStateInfo {
+struct TrajectoryPoint {
     lat: f64,
     lon: f64,
     alt: f64,
-    time: f64,
-    is_burst: bool,
 }
 
 #[derive(Serialize)]
 struct SimulationResult {
-    states: Vec<BalloonStateInfo>,
+    ascent_path: Vec<TrajectoryPoint>,
+    descent_path: Vec<TrajectoryPoint>,
     stratosphere_duration_s: f64,
     max_altitude: f64,
     landing_lat: f64,
@@ -125,17 +124,33 @@ fn download_gfs_series(
 }
 
 fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> SimulationResult {
-    let states: Vec<BalloonStateInfo> = trajectory
+    let burst_idx = trajectory
         .states
         .iter()
-        .map(|s| BalloonStateInfo {
+        .position(|s| s.is_burst)
+        .unwrap_or(trajectory.states.len());
+
+    let ascent_path: Vec<TrajectoryPoint> = trajectory.states[..=burst_idx.min(trajectory.states.len() - 1)]
+        .iter()
+        .map(|s| TrajectoryPoint {
             lat: s.lat,
             lon: s.lon,
             alt: s.alt,
-            time: s.time,
-            is_burst: s.is_burst,
         })
         .collect();
+
+    let descent_path: Vec<TrajectoryPoint> = if burst_idx < trajectory.states.len() {
+        trajectory.states[burst_idx..]
+            .iter()
+            .map(|s| TrajectoryPoint {
+                lat: s.lat,
+                lon: s.lon,
+                alt: s.alt,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let max_altitude = trajectory
         .states
@@ -160,7 +175,8 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
         };
 
     SimulationResult {
-        states,
+        ascent_path,
+        descent_path,
         stratosphere_duration_s,
         max_altitude,
         landing_lat,

@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@deck.gl/core": "^9.3.4",
+    "@deck.gl/layers": "^9.3.4",
+    "@deck.gl/mapbox": "^9.3.4",
     "@fontsource-variable/noto-sans": "^5.2.10",
     "@tailwindcss/vite": "^4.3.1",
     "@tanstack/react-form": "^1.33.0",

@@ -123,11 +123,14 @@
     }
   body {
     @apply bg-background text-foreground;
+    margin: 0;
+    overflow: hidden;
     }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
     }
   html {
     @apply font-sans;
+    overflow: hidden;
     }
 }

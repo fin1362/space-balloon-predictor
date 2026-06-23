@@ -20,6 +20,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 export interface PredictorFormValues {
   launchPosition: string
+  launchLat: number
+  launchLon: number
   launchDate: Date | undefined
   launchTime: string
   ascentRate: string
@@ -40,6 +42,18 @@ const validateTime24h = (value: string) => {
   return undefined
 }
 
+const validateLaunchPosition = (value: string) => {
+  if (!value) return "放球位置を入力してください"
+  const parts = value.split(",").map(s => s.trim())
+  if (parts.length !== 2) return "'緯度,経度' の形式で入力してください"
+  const lat = parseFloat(parts[0])
+  const lon = parseFloat(parts[1])
+  if (isNaN(lat) || isNaN(lon)) return "緯度・経度は数値で入力してください"
+  if (lat < -90 || lat > 90) return "緯度は -90〜90 の範囲で入力してください"
+  if (lon < -180 || lon > 180) return "経度は -180〜180 の範囲で入力してください"
+  return undefined
+}
+
 const validatePositiveNumber = (value: string, label: string) => {
   if (!value) return `${label}を入力してください`
   const num = Number(value)
@@ -51,6 +65,8 @@ const validatePositiveNumber = (value: string, label: string) => {
 export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
   const defaultValues: PredictorFormValues = {
     launchPosition: "",
+    launchLat: 0,
+    launchLon: 0,
     launchDate: undefined,
     launchTime: "",
     ascentRate: "",
@@ -61,7 +77,12 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      await onSubmit(value)
+      const [latStr, lonStr] = value.launchPosition.split(",").map(s => s.trim())
+      await onSubmit({
+        ...value,
+        launchLat: parseFloat(latStr),
+        launchLon: parseFloat(lonStr),
+      })
     },
   })
 
@@ -86,7 +107,7 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
             <form.Field
               name="launchPosition"
               validators={{
-                onChange: ({ value }) => (!value ? "放球位置を入力してください" : undefined),
+                onChange: ({ value }) => validateLaunchPosition(value),
               }}
               children={(field) => (
                 <Field>
