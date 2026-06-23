@@ -64,14 +64,14 @@ const validatePositiveNumber = (value: string, label: string) => {
 
 export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
   const defaultValues: PredictorFormValues = {
-    launchPosition: "",
+    launchPosition: "33.5969, 130.2236",
     launchLat: 0,
     launchLon: 0,
     launchDate: undefined,
     launchTime: "",
-    ascentRate: "",
-    descentRate: "",
-    burstAltitude: "",
+    ascentRate: "6",
+    descentRate: "6",
+    burstAltitude: "30000",
   }
 
   const form = useForm({
