@@ -1,71 +1,93 @@
-import { Map, Marker, useMap, useControl } from "@vis.gl/react-maplibre";
-import { MapboxOverlay } from "@deck.gl/mapbox";
-import { PathLayer } from "@deck.gl/layers";
-import maplibregl from "maplibre-gl";
-import { useMemo, useEffect } from "react";
-import "maplibre-gl/dist/maplibre-gl.css";
+import { Map, Marker, useMap, useControl } from "@vis.gl/react-maplibre"
+import { MapboxOverlay } from "@deck.gl/mapbox"
+import { PathLayer } from "@deck.gl/layers"
+import maplibregl from "maplibre-gl"
+import { useMemo, useEffect, useCallback } from "react"
+import "maplibre-gl/dist/maplibre-gl.css"
 
 interface TrajectoryPoint {
-  lat: number;
-  lon: number;
-  alt: number;
+  lat: number
+  lon: number
+  alt: number
 }
 
 interface TrajectoryMapProps {
-  predictionData: any;
+  predictionData: any
+  launchLat?: number
+  launchLon?: number
+  mapSelectionMode?: boolean
+  onMapClick?: (lat: number, lon: number) => void
 }
 
 function DeckGLOverlay(props: { layers: any[]; interleaved?: boolean }) {
-  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay(props));
-  overlay.setProps(props);
-  return null;
+  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay(props))
+  overlay.setProps(props)
+  return null
 }
 
 function MapController({
   trajectoryPoints,
 }: {
-  trajectoryPoints: TrajectoryPoint[] | null;
+  trajectoryPoints: TrajectoryPoint[] | null
 }) {
-  const { current: map } = useMap();
+  const { current: map } = useMap()
 
   useEffect(() => {
-    if (!map || !trajectoryPoints || trajectoryPoints.length === 0) return;
+    if (!map || !trajectoryPoints || trajectoryPoints.length === 0) return
 
     const coords: [number, number][] = trajectoryPoints.map((p) => [
       p.lon,
       p.lat,
-    ]);
-    if (coords.length === 0) return;
+    ])
+    if (coords.length === 0) return
 
     const bounds = coords.reduce(
       (b, c) => b.extend(c),
       new maplibregl.LngLatBounds(coords[0], coords[0]),
-    );
-    map.fitBounds(bounds, { padding: 60, duration: 1200 });
-  }, [map, trajectoryPoints]);
+    )
+    map.fitBounds(bounds, { padding: 60, duration: 1200 })
+  }, [map, trajectoryPoints])
 
-  return null;
+  return null
 }
 
-export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
+export function TrajectoryMap({
+  predictionData,
+  launchLat,
+  launchLon,
+  mapSelectionMode = false,
+  onMapClick,
+}: TrajectoryMapProps) {
+  const handleMapClick = useCallback((e: any) => {
+    if (!mapSelectionMode || !onMapClick) return
+    const { lat, lng } = e.lngLat
+    onMapClick(lat, lng)
+  }, [mapSelectionMode, onMapClick])
+
+  const hasLaunchPos =
+    launchLat != null && launchLon != null &&
+    !isNaN(launchLat) && !isNaN(launchLon) &&
+    launchLat >= -90 && launchLat <= 90 &&
+    launchLon >= -180 && launchLon <= 180
+
   const allPoints = useMemo(() => {
-    if (!predictionData) return null;
-    const ascent: TrajectoryPoint[] = predictionData.ascent_path ?? [];
-    const descent: TrajectoryPoint[] = predictionData.descent_path ?? [];
-    return [...ascent, ...descent.slice(1)];
-  }, [predictionData]);
+    if (!predictionData) return null
+    const ascent: TrajectoryPoint[] = predictionData.ascent_path ?? []
+    const descent: TrajectoryPoint[] = predictionData.descent_path ?? []
+    return [...ascent, ...descent.slice(1)]
+  }, [predictionData])
 
   const deckLayers = useMemo(() => {
-    if (!predictionData) return [];
+    if (!predictionData) return []
 
     const ascentPath: [number, number, number][] = (
       predictionData.ascent_path ?? []
-    ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt]);
+    ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt])
     const descentPath: [number, number, number][] = (
       predictionData.descent_path ?? []
-    ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt]);
+    ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt])
 
-    const layers: any[] = [];
+    const layers: any[] = []
 
     if (ascentPath.length >= 2) {
       layers.push(
@@ -74,15 +96,13 @@ export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
           data: [{ path: ascentPath }],
           getPath: (d: { path: [number, number, number][] }) => d.path,
           getColor: [239, 68, 68, 220],
-
           widthUnits: "pixels",
           getWidth: 4,
-
           billboard: true,
           rounded: true,
           jointRounded: true,
         }),
-      );
+      )
     }
 
     if (descentPath.length >= 2) {
@@ -92,33 +112,25 @@ export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
           data: [{ path: descentPath }],
           getPath: (d: { path: [number, number, number][] }) => d.path,
           getColor: [59, 130, 246, 220],
-
           widthUnits: "pixels",
           getWidth: 4,
-
           billboard: true,
           rounded: true,
           jointRounded: true,
         }),
-      );
+      )
     }
 
-    return layers;
-  }, [predictionData]);
-
-  const launchPos = useMemo(() => {
-    if (!predictionData?.ascent_path?.length) return null;
-    const p = predictionData.ascent_path[0];
-    return { lat: p.lat, lon: p.lon };
-  }, [predictionData]);
+    return layers
+  }, [predictionData])
 
   const landingPos = useMemo(() => {
-    if (!predictionData) return null;
-    return { lat: predictionData.landing_lat, lon: predictionData.landing_lon };
-  }, [predictionData]);
+    if (!predictionData) return null
+    return { lat: predictionData.landing_lat, lon: predictionData.landing_lon }
+  }, [predictionData])
 
   return (
-    <div className="w-full h-full">
+    <div className={`w-full h-full ${mapSelectionMode ? "cursor-crosshair" : ""}`}>
       <Map
         initialViewState={{
           longitude: 135,
@@ -127,6 +139,7 @@ export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle="https://tiles.openfreemap.org/styles/liberty"
+        onClick={handleMapClick}
       >
         <MapController trajectoryPoints={allPoints} />
 
@@ -134,10 +147,10 @@ export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
           <DeckGLOverlay layers={deckLayers} interleaved={true} />
         )}
 
-        {launchPos && (
+        {hasLaunchPos && (
           <Marker
-            longitude={launchPos.lon}
-            latitude={launchPos.lat}
+            longitude={launchLon!}
+            latitude={launchLat!}
             anchor="bottom"
           >
             <div className="relative">
@@ -165,5 +178,5 @@ export function TrajectoryMap({ predictionData }: TrajectoryMapProps) {
         )}
       </Map>
     </div>
-  );
+  )
 }

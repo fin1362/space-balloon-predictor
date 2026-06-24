@@ -6,8 +6,8 @@ import {
   SidebarHeader,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { Balloon, CalendarDays, ChevronsDown, ChevronsUp, Clock, Loader, MapPin, Play } from "lucide-react"
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { Balloon, CalendarDays, ChevronsDown, ChevronsUp, Clock, Crosshair, Loader, MapPin, Pencil, Play } from "lucide-react"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import {
   Field,
   FieldGroup,
@@ -17,9 +17,11 @@ import { Button } from "@/components/ui/button"
 
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { useState, useEffect } from "react"
+
+export type PositionMode = "preset" | "custom" | "map"
 
 export interface PredictorFormValues {
-  launchPosition: string
   launchLat: number
   launchLon: number
   launchDate: Date | undefined
@@ -32,25 +34,31 @@ export interface PredictorFormValues {
 interface AppSidebarProps {
   onSubmit: (values: PredictorFormValues) => void | Promise<void>
   isLoading?: boolean
+  launchLat: number
+  launchLon: number
+  onLaunchPositionChange: (lat: number, lon: number) => void
+  positionMode: PositionMode
+  onPositionModeChange: (mode: PositionMode) => void
 }
 
-// 24時間形式 (例: 13:00 や 09:30) のバリデーション
+export const PRESETS = [
+  { name: "伊都キャンパス", lat: 33.5969, lon: 130.2236 },
+  { name: "南レク南楽園ファミリーパーク", lat: 33.13492, lon: 132.50477 },
+  { name: "津島プレーランド", lat: 33.12604, lon: 132.50333 },
+  { name: "須ノ川公園キャンプ場", lat: 33.04107, lon: 132.48698 },
+  { name: "南レク松軒山公園", lat: 32.97239, lon: 132.55583 },
+  { name: "南レク御荘公園", lat: 32.96417, lon: 132.55206 },
+  { name: "南レク城辺公園", lat: 32.95287, lon: 132.58429 },
+  { name: "土佐西南大規模公園", lat: 33.02483, lon: 133.01651 },
+] as const
+
+const DEFAULT_LAT = PRESETS[0].lat
+const DEFAULT_LON = PRESETS[0].lon
+
 const validateTime24h = (value: string) => {
   if (!value) return "時刻を入力してください"
   const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/
   if (!regex.test(value)) return "24時間形式 (例: 13:00) で入力してください"
-  return undefined
-}
-
-const validateLaunchPosition = (value: string) => {
-  if (!value) return "放球位置を入力してください"
-  const parts = value.split(",").map(s => s.trim())
-  if (parts.length !== 2) return "'緯度,経度' の形式で入力してください"
-  const lat = parseFloat(parts[0])
-  const lon = parseFloat(parts[1])
-  if (isNaN(lat) || isNaN(lon)) return "緯度・経度は数値で入力してください"
-  if (lat < -90 || lat > 90) return "緯度は -90〜90 の範囲で入力してください"
-  if (lon < -180 || lon > 180) return "経度は -180〜180 の範囲で入力してください"
   return undefined
 }
 
@@ -62,11 +70,24 @@ const validatePositiveNumber = (value: string, label: string) => {
   return undefined
 }
 
-export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
+function findPreset(lat: number, lon: number) {
+  return PRESETS.find(p => Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lon - lon) < 0.0001)
+}
+
+export function AppSidebar({
+  onSubmit,
+  isLoading = false,
+  launchLat,
+  launchLon,
+  onLaunchPositionChange,
+  positionMode,
+  onPositionModeChange,
+}: AppSidebarProps) {
+  const [popoverOpen, setPopoverOpen] = useState(false)
+
   const defaultValues: PredictorFormValues = {
-    launchPosition: "33.5969, 130.2236",
-    launchLat: 0,
-    launchLon: 0,
+    launchLat: launchLat ?? DEFAULT_LAT,
+    launchLon: launchLon ?? DEFAULT_LON,
     launchDate: undefined,
     launchTime: "",
     ascentRate: "6",
@@ -77,14 +98,47 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
   const form = useForm({
     defaultValues,
     onSubmit: async ({ value }) => {
-      const [latStr, lonStr] = value.launchPosition.split(",").map(s => s.trim())
-      await onSubmit({
-        ...value,
-        launchLat: parseFloat(latStr),
-        launchLon: parseFloat(lonStr),
-      })
+      await onSubmit(value)
     },
   })
+
+  useEffect(() => {
+    if (launchLat == null || launchLon == null) return
+
+    const currentLat = form.getFieldValue("launchLat")
+    const currentLon = form.getFieldValue("launchLon")
+
+    if (currentLat !== launchLat) {
+      form.setFieldValue("launchLat", launchLat)
+    }
+    if (currentLon !== launchLon) {
+      form.setFieldValue("launchLon", launchLon)
+    }
+  }, [launchLat, launchLon, form])
+
+  const handlePresetSelect = (preset: typeof PRESETS[number]) => {
+    onPositionModeChange("preset")
+    onLaunchPositionChange(preset.lat, preset.lon)
+    setPopoverOpen(false)
+  }
+
+  const handleCustomSelect = () => {
+    onPositionModeChange("custom")
+    setPopoverOpen(false)
+  }
+
+  const handleMapSelect = () => {
+    onPositionModeChange("map")
+    setPopoverOpen(false)
+  }
+
+  const matchedPreset = findPreset(launchLat, launchLon)
+  const triggerLabel =
+    positionMode === "custom"
+      ? "直接入力"
+      : positionMode === "map"
+        ? "地図から選択"
+        : (matchedPreset ? matchedPreset.name : "選択済み")
 
   return (
     <Sidebar variant="floating">
@@ -104,37 +158,146 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
         <SidebarContent className="p-4 *:list-none">
           <SidebarMenuItem className="space-y-6">
             {/* 放球位置 */}
-            <form.Field
-              name="launchPosition"
-              validators={{
-                onChange: ({ value }) => validateLaunchPosition(value),
-              }}
-              children={(field) => (
-                <Field>
-                  <FieldLabel className="text-xs" htmlFor={field.name}>放球位置</FieldLabel>
-                  <InputGroup>
-                    <InputGroupInput
-                      id={field.name}
-                      name={field.name}
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      type="text"
-                      placeholder="位置を入力"
-                    />
-                    <InputGroupAddon align="inline-start">
-                      <MapPin className="text-muted-foreground" />
-                    </InputGroupAddon>
-                  </InputGroup>
-                  {field.state.meta.isTouched && field.state.meta.errors.length ? (
-                    <p className="text-[11px] text-red-500 mt-1">{field.state.meta.errors.join(", ")}</p>
-                  ) : null}
-                </Field>
+            <Field>
+              <FieldLabel className="text-xs">放球位置</FieldLabel>
+              <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button type="button" className="w-full text-left outline-none block">
+                    <InputGroup>
+                      <InputGroupInput
+                        value={triggerLabel}
+                        readOnly
+                        className="cursor-pointer placeholder:text-muted-foreground placeholder:text-sm"
+                      />
+                      <InputGroupAddon align="inline-start">
+                        <MapPin className="text-muted-foreground" />
+                      </InputGroupAddon>
+                    </InputGroup>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-1" align="start">
+                  <div className="flex flex-col">
+                    {PRESETS.map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => handlePresetSelect(preset)}
+                        className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md text-left hover:bg-accent hover:text-accent-foreground ${positionMode === "preset" && matchedPreset?.name === preset.name ? "bg-accent text-accent-foreground" : ""}`}
+                      >
+                        <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
+                        {preset.name}
+                      </button>
+                    ))}
+                    <div className="my-1 h-px bg-border" />
+                    <button
+                      type="button"
+                      onClick={handleCustomSelect}
+                      className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md text-left hover:bg-accent hover:text-accent-foreground ${positionMode === "custom" ? "bg-accent text-accent-foreground" : ""}`}
+                    >
+                      <Pencil className="size-3.5 shrink-0 text-muted-foreground" />
+                      直接入力
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleMapSelect}
+                      className={`flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded-md text-left hover:bg-accent hover:text-accent-foreground ${positionMode === "map" ? "bg-accent text-accent-foreground" : ""}`}
+                    >
+                      <Crosshair className="size-3.5 shrink-0 text-muted-foreground" />
+                      地図から選択
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {positionMode === "custom" && (
+                <div className="flex gap-2 mt-1.5">
+                  <form.Field
+                    name="launchLat"
+                    validators={{
+                      onChange: ({ value }) => {
+                        if (value === undefined || value === null || isNaN(value)) return "緯度を入力してください"
+                        if (value < -90 || value > 90) return "緯度は -90〜90 の範囲で入力してください"
+                        return undefined
+                      },
+                    }}
+                    children={(latField) => (
+                      <div className="flex-1">
+                        <InputGroup>
+                          <InputGroupInput
+                            value={latField.state.value?.toString() ?? ""}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const num = val === "" ? NaN : parseFloat(val)
+                              latField.handleChange(num)
+                              if (!isNaN(num) && num >= -90 && num <= 90) {
+                                onLaunchPositionChange(num, form.getFieldValue("launchLon"))
+                              }
+                            }}
+                            onBlur={latField.handleBlur}
+                            type="number"
+                            step="any"
+                            placeholder="緯度"
+                          />
+                          <InputGroupAddon align="inline-start">
+                            <span className="text-[10px] text-muted-foreground">緯度</span>
+                          </InputGroupAddon>
+                        </InputGroup>
+                        {latField.state.meta.isTouched && latField.state.meta.errors.length ? (
+                          <p className="text-[11px] text-red-500 mt-1">{latField.state.meta.errors.join(", ")}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  />
+
+                  <form.Field
+                    name="launchLon"
+                    validators={{
+                      onChange: ({ value }) => {
+                        if (value === undefined || value === null || isNaN(value)) return "経度を入力してください"
+                        if (value < -180 || value > 180) return "経度は -180〜180 の範囲で入力してください"
+                        return undefined
+                      },
+                    }}
+                    children={(lonField) => (
+                      <div className="flex-1">
+                        <InputGroup>
+                          <InputGroupInput
+                            value={lonField.state.value?.toString() ?? ""}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              const num = val === "" ? NaN : parseFloat(val)
+                              lonField.handleChange(num)
+                              if (!isNaN(num) && num >= -180 && num <= 180) {
+                                onLaunchPositionChange(form.getFieldValue("launchLat"), num)
+                              }
+                            }}
+                            onBlur={lonField.handleBlur}
+                            type="number"
+                            step="any"
+                            placeholder="経度"
+                          />
+                          <InputGroupAddon align="inline-start">
+                            <span className="text-[10px] text-muted-foreground">経度</span>
+                          </InputGroupAddon>
+                        </InputGroup>
+                        {lonField.state.meta.isTouched && lonField.state.meta.errors.length ? (
+                          <p className="text-[11px] text-red-500 mt-1">{lonField.state.meta.errors.join(", ")}</p>
+                        ) : null}
+                      </div>
+                    )}
+                  />
+                </div>
               )}
-            />
+
+              {positionMode === "map" && (
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  地図をクリックして放球位置を選択してください
+                </p>
+              )}
+            </Field>
 
             <FieldGroup className="flex flex-col gap-y-2">
-              {/* 放球日 (デザイン統一版) */}
+              {/* 放球日 */}
               <form.Field
                 name="launchDate"
                 validators={{
@@ -145,7 +308,6 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
                     <FieldLabel className="text-xs" htmlFor={field.name}>放球日</FieldLabel>
                     <Popover>
                       <PopoverTrigger asChild>
-                        {/* ボタン全体をInputGroupと同じ見た目にするため、中身にInputGroupを配置 */}
                         <button type="button" className="w-full text-left outline-none block">
                           <InputGroup>
                             <InputGroupInput
@@ -188,7 +350,7 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
                 )}
               />
 
-              {/* 放球時刻 (24時間形式テキスト入力) */}
+              {/* 放球時刻 */}
               <form.Field
                 name="launchTime"
                 validators={{
@@ -243,6 +405,9 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
                       <InputGroupAddon align="inline-start">
                         <ChevronsUp className="text-muted-foreground" />
                       </InputGroupAddon>
+                      <InputGroupAddon align="inline-end">
+                        <InputGroupText className="text-muted-foreground">m/s</InputGroupText>
+                      </InputGroupAddon>
                     </InputGroup>
                     {field.state.meta.isTouched && field.state.meta.errors.length ? (
                       <p className="text-[11px] text-red-500 mt-1">{field.state.meta.errors.join(", ")}</p>
@@ -272,6 +437,9 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
                       />
                       <InputGroupAddon align="inline-start">
                         <ChevronsDown className="text-muted-foreground" />
+                      </InputGroupAddon>
+                      <InputGroupAddon align="inline-end">
+                        <InputGroupText className="text-muted-foreground">m/s</InputGroupText>
                       </InputGroupAddon>
                     </InputGroup>
                     {field.state.meta.isTouched && field.state.meta.errors.length ? (
@@ -303,6 +471,9 @@ export function AppSidebar({ onSubmit, isLoading = false }: AppSidebarProps) {
                     />
                     <InputGroupAddon align="inline-start">
                       <Loader className="text-muted-foreground" />
+                    </InputGroupAddon>
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupText className="text-muted-foreground">m</InputGroupText>
                     </InputGroupAddon>
                   </InputGroup>
                   {field.state.meta.isTouched && field.state.meta.errors.length ? (

@@ -6,7 +6,7 @@ mod kml;
 mod physics;
 mod simulation;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use serde::Serialize;
 use std::fs::File;
 use std::io::copy;
@@ -82,8 +82,15 @@ fn download_gfs_series(
     gfs_run_time: DateTime<Utc>,
     launch_time: DateTime<Utc>,
 ) -> Result<(Atmosphere, Atmosphere, Atmosphere, f64), String> {
+    let cycle_hour = (gfs_run_time.hour() / 6) * 6;
+    let rounded_gfs_time = gfs_run_time
+        .date_naive()
+        .and_hms_opt(cycle_hour, 0, 0)
+        .unwrap()
+        .and_utc();
+
     let total_diff_seconds = launch_time
-        .signed_duration_since(gfs_run_time)
+        .signed_duration_since(rounded_gfs_time)
         .num_seconds();
     if total_diff_seconds < 0 {
         return Err(
@@ -95,8 +102,8 @@ fn download_gfs_series(
     let forecast_hour_low = ((diff_hours / 3.0).floor() as u32) * 3;
     let launch_offset_hours = diff_hours - (forecast_hour_low as f64);
 
-    let date_str = gfs_run_time.format("%Y%m%d").to_string();
-    let cycle_str = gfs_run_time.format("%H").to_string();
+    let date_str = rounded_gfs_time.format("%Y%m%d").to_string();
+    let cycle_str = rounded_gfs_time.format("%H").to_string();
 
     println!(
         "Downloading GFS (f{:03}→f{:03}→f{:03}), offset {:.2}h",
