@@ -1,4 +1,5 @@
 use grib::{Grib2SubmessageDecoder, LatLons};
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -241,12 +242,12 @@ impl Atmosphere {
     }
 
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let f = File::open(path)?;
+        let f = File::open(&path)?;
         let reader = BufReader::new(f);
         let grib = grib::from_reader(reader)?;
 
-        let mut temp_storage: BTreeMap<i32, PressureLevelBuilder> = BTreeMap::new();
         let mut grid_metadata: Option<GridMetadata> = None;
+        let mut decode_tasks: Vec<(GribParameter, i32, Grib2SubmessageDecoder)> = Vec::new();
 
         for (_index, submessage) in grib.iter() {
             let discipline = submessage.indicator().discipline;
@@ -304,32 +305,41 @@ impl Atmosphere {
                         });
                     }
 
-                    let metadata = grid_metadata.as_ref().unwrap();
-
-                    // データ部分のデコード
                     let decoder = Grib2SubmessageDecoder::from(submessage)?;
-                    let values: Vec<f32> = decoder.dispatch()?.collect();
-
-                    let grid = LatLonGrid {
-                        values,
-                        lon_coords: Arc::clone(&metadata.lon_coords),
-                        lat_coords: Arc::clone(&metadata.lat_coords),
-                        width: metadata.width,
-                        height: metadata.height,
-                    };
-
-                    let entry = temp_storage
-                        .entry(pressure)
-                        .or_insert_with(PressureLevelBuilder::default);
-                    // GRIBパラメータコードに応じて、対応するフィールドに格納
-                    match param {
-                        PARAM_U => entry.u_wind = Some(grid),     // 東西風速成分
-                        PARAM_V => entry.v_wind = Some(grid),     // 南北風速成分
-                        PARAM_T => entry.temp_k = Some(grid),     // 気温 [K]
-                        PARAM_H => entry.height_gpm = Some(grid), // 位勢高度 [gpm]
-                        _ => {}
-                    }
+                    decode_tasks.push((param, pressure, decoder));
                 }
+            }
+        }
+
+        let metadata = grid_metadata.as_ref().unwrap();
+
+        let decoded: Vec<(GribParameter, i32, Vec<f32>)> = decode_tasks
+            .into_par_iter()
+            .map(|(param, pressure, decoder)| {
+                let values: Vec<f32> = decoder.dispatch().unwrap().collect();
+                (param, pressure, values)
+            })
+            .collect();
+
+        let mut temp_storage: BTreeMap<i32, PressureLevelBuilder> = BTreeMap::new();
+        for (param, pressure, values) in decoded {
+            let grid = LatLonGrid {
+                values,
+                lon_coords: Arc::clone(&metadata.lon_coords),
+                lat_coords: Arc::clone(&metadata.lat_coords),
+                width: metadata.width,
+                height: metadata.height,
+            };
+
+            let entry = temp_storage
+                .entry(pressure)
+                .or_insert_with(PressureLevelBuilder::default);
+            match param {
+                PARAM_U => entry.u_wind = Some(grid),
+                PARAM_V => entry.v_wind = Some(grid),
+                PARAM_T => entry.temp_k = Some(grid),
+                PARAM_H => entry.height_gpm = Some(grid),
+                _ => {}
             }
         }
 

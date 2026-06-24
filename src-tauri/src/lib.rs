@@ -118,9 +118,14 @@ fn download_gfs_series(
     let path_high = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 6)?;
 
     println!("Parsing GRIB2 files...");
-    let env_earliest = Atmosphere::new(&path_low).map_err(|e| e.to_string())?;
-    let env_middle = Atmosphere::new(&path_mid).map_err(|e| e.to_string())?;
-    let env_latest = Atmosphere::new(&path_high).map_err(|e| e.to_string())?;
+    let ((r1, r2), r3) = rayon::join(
+        || rayon::join(
+            || Atmosphere::new(&path_low).map_err(|e| e.to_string()),
+            || Atmosphere::new(&path_mid).map_err(|e| e.to_string()),
+        ),
+        || Atmosphere::new(&path_high).map_err(|e| e.to_string()),
+    );
+    let (env_earliest, env_middle, env_latest) = (r1?, r2?, r3?);
 
     Ok((
         env_earliest,
