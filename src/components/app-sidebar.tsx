@@ -6,7 +6,7 @@ import {
   SidebarHeader,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
-import { Balloon, CalendarDays, ChevronsDown, ChevronsUp, Clock, Crosshair, Loader, MapPin, Pencil, Play } from "lucide-react"
+import { Balloon, CalendarDays, ChevronsDown, ChevronsUp, Clock, Crosshair, Dice5, Loader, MapPin, Pencil, Play, Sigma } from "lucide-react"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import {
   Field,
@@ -29,6 +29,9 @@ export interface PredictorFormValues {
   ascentRate: string
   descentRate: string
   burstAltitude: string
+  monteCarloEnabled: boolean
+  burstAltitudeStd: string
+  numSamples: string
 }
 
 interface AppSidebarProps {
@@ -93,6 +96,9 @@ export function AppSidebar({
     ascentRate: "6",
     descentRate: "6",
     burstAltitude: "30000",
+    monteCarloEnabled: false,
+    burstAltitudeStd: "1000",
+    numSamples: "50",
   }
 
   const form = useForm({
@@ -480,6 +486,109 @@ export function AppSidebar({
                     <p className="text-[11px] text-red-500 mt-1">{field.state.meta.errors.join(", ")}</p>
                   ) : null}
                 </Field>
+              )}
+            />
+
+            {/* モンテカルロ */}
+            <form.Subscribe
+              selector={(state) => state.values.monteCarloEnabled}
+              children={(monteCarloEnabled) => (
+                <>
+                  <Field>
+                    <div className="flex items-center justify-between">
+                      <FieldLabel className="text-xs flex items-center gap-1.5">
+                        <Dice5 className="size-3.5 text-muted-foreground" />
+                        モンテカルロ法
+                      </FieldLabel>
+                      <button
+                        type="button"
+                        onClick={() => form.setFieldValue("monteCarloEnabled", !monteCarloEnabled)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                          monteCarloEnabled ? "bg-primary" : "bg-input"
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${
+                            monteCarloEnabled ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </Field>
+
+                  {monteCarloEnabled && (
+                    <>
+                      {/* 標準偏差 */}
+                      <form.Field
+                        name="burstAltitudeStd"
+                        validators={{
+                          onChange: ({ value }) => validatePositiveNumber(value, "標準偏差"),
+                        }}
+                        children={(field) => (
+                          <Field>
+                            <FieldLabel className="text-xs" htmlFor={field.name}>バースト高度 標準偏差</FieldLabel>
+                            <InputGroup>
+                              <InputGroupInput
+                                id={field.name}
+                                name={field.name}
+                                value={field.state.value}
+                                onBlur={field.handleBlur}
+                                onChange={(e) => field.handleChange(e.target.value)}
+                                type="text"
+                                placeholder="標準偏差を入力"
+                              />
+                              <InputGroupAddon align="inline-start">
+                                <Sigma className="text-muted-foreground" />
+                              </InputGroupAddon>
+                              <InputGroupAddon align="inline-end">
+                                <InputGroupText className="text-muted-foreground">m</InputGroupText>
+                              </InputGroupAddon>
+                            </InputGroup>
+                            {field.state.meta.isTouched && field.state.meta.errors.length ? (
+                              <p className="text-[11px] text-red-500 mt-1">{field.state.meta.errors.join(", ")}</p>
+                            ) : null}
+                          </Field>
+                        )}
+                      />
+
+                      {/* サンプル数 */}
+                      <form.Field
+                        name="numSamples"
+                        validators={{
+                          onChange: ({ value }) => {
+                            if (!value) return "サンプル数を入力してください"
+                            const num = Number(value)
+                            if (isNaN(num) || !Number.isInteger(num)) return "整数で入力してください"
+                            if (num < 1 || num > 200) return "1〜200 の範囲で入力してください"
+                            return undefined
+                          },
+                        }}
+                        children={(field) => (
+                          <Field>
+                            <FieldLabel className="text-xs" htmlFor={field.name}>サンプル数</FieldLabel>
+                            <InputGroup>
+                              <InputGroupInput
+                                id={field.name}
+                                name={field.name}
+                                value={field.state.value}
+                                onBlur={field.handleBlur}
+                                onChange={(e) => field.handleChange(e.target.value)}
+                                type="text"
+                                placeholder="サンプル数を入力"
+                              />
+                              <InputGroupAddon align="inline-start">
+                                <Dice5 className="text-muted-foreground" />
+                              </InputGroupAddon>
+                            </InputGroup>
+                            {field.state.meta.isTouched && field.state.meta.errors.length ? (
+                              <p className="text-[11px] text-red-500 mt-1">{field.state.meta.errors.join(", ")}</p>
+                            ) : null}
+                          </Field>
+                        )}
+                      />
+                    </>
+                  )}
+                </>
               )}
             />
           </SidebarMenuItem>

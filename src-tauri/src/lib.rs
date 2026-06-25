@@ -16,6 +16,10 @@ use coords::{EARTH_RADIUS, Geodetic};
 use grib_reader::Atmosphere;
 use simulation::{SimConfig, Simulator, Trajectory};
 
+use rand::Rng;
+use rand_distr::Normal;
+use rayon::prelude::*;
+
 #[derive(Serialize)]
 struct TrajectoryPoint {
     lat: f64,
@@ -33,6 +37,30 @@ struct SimulationResult {
     landing_lon: f64,
     drift_km: f64,
     total_duration_s: f64,
+}
+
+#[derive(Serialize)]
+struct MonteCarloPoint {
+    landing_lat: f64,
+    landing_lon: f64,
+    burst_altitude: f64,
+    deviation_sigma: f64,
+}
+
+#[derive(Serialize)]
+struct MonteCarloTrajectory {
+    ascent_path: Vec<TrajectoryPoint>,
+    descent_path: Vec<TrajectoryPoint>,
+}
+
+#[derive(Serialize)]
+struct MonteCarloResult {
+    points: Vec<MonteCarloPoint>,
+    mean_landing_lat: f64,
+    mean_landing_lon: f64,
+    mean_ascent_path: Vec<TrajectoryPoint>,
+    mean_descent_path: Vec<TrajectoryPoint>,
+    trajectories: Vec<MonteCarloTrajectory>,
 }
 
 fn download_gfs_file(
@@ -249,6 +277,129 @@ async fn run_simulation(
 }
 
 #[tauri::command]
+async fn run_monte_carlo(
+    launch_lat: f64,
+    launch_lon: f64,
+    launch_alt: f64,
+    gfs_run_time: String,
+    launch_time: String,
+    ascent_rate: f64,
+    descent_rate: f64,
+    burst_altitude_mean: f64,
+    burst_altitude_std: f64,
+    num_samples: u32,
+) -> Result<MonteCarloResult, String> {
+    let gfs_run: DateTime<Utc> = gfs_run_time.parse().map_err(|e| format!("Invalid gfs_run_time: {}", e))?;
+    let launch: DateTime<Utc> = launch_time.parse().map_err(|e| format!("Invalid launch_time: {}", e))?;
+
+    let launch_site = Geodetic {
+        lat: launch_lat,
+        lon: launch_lon,
+        alt: launch_alt,
+    };
+
+    tokio::task::spawn_blocking(move || -> Result<MonteCarloResult, String> {
+        let work_dir = Path::new(".").to_path_buf();
+
+        let (env_earliest, env_middle, env_latest, launch_offset_hours) =
+            download_gfs_series(&work_dir, gfs_run, launch)?;
+
+        let use_scatter = burst_altitude_std > 0.0;
+
+        let sample_count = if use_scatter { num_samples } else { 1 };
+
+        // サンプルするバースト高度を事前に生成
+        let burst_altitudes: Vec<f64> = if use_scatter {
+            let normal = Normal::new(burst_altitude_mean, burst_altitude_std)
+                .map_err(|e| format!("Invalid distribution parameters: {}", e))?;
+            let mut rng = rand::thread_rng();
+            (0..sample_count)
+                .map(|_| rng.sample(normal).max(0.0))
+                .collect()
+        } else {
+            vec![burst_altitude_mean]
+        };
+
+        // Rayon で並列シミュレーション
+        let (points, trajectories): (Vec<MonteCarloPoint>, Vec<MonteCarloTrajectory>) = burst_altitudes
+            .par_iter()
+            .map(|&sampled_burst| {
+                let deviation = if use_scatter {
+                    (sampled_burst - burst_altitude_mean) / burst_altitude_std
+                } else {
+                    0.0
+                };
+
+                let config = SimConfig {
+                    launch_site,
+                    ascent_rate_m_s: ascent_rate,
+                    ground_descend_rate_m_s: descent_rate,
+                    burst_altitude_m: sampled_burst,
+                    dt: 5.0,
+                };
+
+                let simulator = Simulator::new(
+                    config,
+                    env_earliest.clone(),
+                    env_middle.clone(),
+                    env_latest.clone(),
+                    launch_offset_hours,
+                );
+                let trajectory = simulator.run();
+                let result = trajectory_to_result(&trajectory, launch_site);
+
+                let mc_point = MonteCarloPoint {
+                    landing_lat: result.landing_lat,
+                    landing_lon: result.landing_lon,
+                    burst_altitude: sampled_burst,
+                    deviation_sigma: deviation,
+                };
+
+                let mc_traj = MonteCarloTrajectory {
+                    ascent_path: result.ascent_path,
+                    descent_path: result.descent_path,
+                };
+
+                (mc_point, mc_traj)
+            })
+            .unzip();
+
+        let sum_lat: f64 = points.iter().map(|p| p.landing_lat).sum();
+        let sum_lon: f64 = points.iter().map(|p| p.landing_lon).sum();
+
+        // 平均バースト高度の経路を計算
+        let mean_config = SimConfig {
+            launch_site,
+            ascent_rate_m_s: ascent_rate,
+            ground_descend_rate_m_s: descent_rate,
+            burst_altitude_m: burst_altitude_mean,
+            dt: 5.0,
+        };
+        let mean_sim = Simulator::new(
+            mean_config,
+            env_earliest,
+            env_middle,
+            env_latest,
+            launch_offset_hours,
+        );
+        let mean_trajectory = mean_sim.run();
+        let mean_result = trajectory_to_result(&mean_trajectory, launch_site);
+
+        let n = sample_count as f64;
+        Ok(MonteCarloResult {
+            points,
+            mean_landing_lat: if use_scatter { sum_lat / n } else { mean_result.landing_lat },
+            mean_landing_lon: if use_scatter { sum_lon / n } else { mean_result.landing_lon },
+            mean_ascent_path: mean_result.ascent_path,
+            mean_descent_path: mean_result.descent_path,
+            trajectories,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -257,7 +408,7 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, run_simulation])
+        .invoke_handler(tauri::generate_handler![greet, run_simulation, run_monte_carlo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

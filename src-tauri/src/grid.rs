@@ -13,6 +13,7 @@ pub struct GridInterpolationKey {
 }
 
 /// 2次元格子データ（1つの等圧面、1つの変数に対応）
+#[derive(Clone)]
 pub(crate) struct LatLonGrid {
     pub(crate) values: Vec<f32>,
     pub(crate) lon_coords: Arc<Vec<f32>>,

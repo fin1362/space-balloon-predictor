@@ -67,11 +67,13 @@ pub struct PressureHeightPair {
 
 /// GRIB2 ファイルから解析された全等圧面の気象データ
 /// キーは気圧値 (Pa)、値は対応するAtmosphereLayer
+#[derive(Clone)]
 pub struct Atmosphere {
     levels: BTreeMap<i32, AtmosphereLayer>,
 }
 
 /// 1等圧面の気象データ
+#[derive(Clone)]
 struct AtmosphereLayer {
     u_wind: LatLonGrid,
     v_wind: LatLonGrid,
