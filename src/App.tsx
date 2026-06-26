@@ -1,8 +1,9 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { AppSidebar, PredictorFormValues, PositionMode, PRESETS } from "@/components/app-sidebar"
+import { AppSidebar, PredictorFormValues, PositionMode, PRESETS, ProgressInfo } from "@/components/app-sidebar"
 import { TrajectoryMap } from "@/components/trajectory-map"
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 
 const DEFAULT_LAT = PRESETS[0].lat
 const DEFAULT_LON = PRESETS[0].lon
@@ -38,16 +39,21 @@ function App() {
   const [predictionData, setPredictionData] = useState<any>(null)
   const [monteCarloData, setMonteCarloData] = useState<MonteCarloResult | null>(null)
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [progress, setProgress] = useState<ProgressInfo | null>(null)
   const [positionMode, setPositionMode] = useState<PositionMode>("preset")
   const [launchLat, setLaunchLat] = useState<number>(DEFAULT_LAT)
   const [launchLon, setLaunchLon] = useState<number>(DEFAULT_LON)
 
-  const handlePredict = async (values: PredictorFormValues) => {
-    setLoading(true)
+  const handlePredict = useCallback(async (values: PredictorFormValues) => {
+    setProgress({ stage: "preparing" })
     setPredictionData(null)
     setMonteCarloData(null)
     setSelectedPointIndex(null)
+
+    const unlisten = await listen<ProgressInfo>("progress", (event) => {
+      setProgress(event.payload)
+    })
+
     try {
       const launchDate = values.launchDate!
       const [hours, minutes] = values.launchTime.split(":").map(Number)
@@ -90,9 +96,10 @@ function App() {
     } catch (e) {
       console.error("Simulation failed:", e)
     } finally {
-      setLoading(false)
+      unlisten()
+      setProgress(null)
     }
-  }
+  }, [])
 
   const handleLaunchPositionChange = (lat: number, lon: number) => {
     setLaunchLat(lat)
@@ -103,7 +110,7 @@ function App() {
     <SidebarProvider>
       <AppSidebar
         onSubmit={handlePredict}
-        isLoading={loading}
+        progress={progress}
         launchLat={launchLat}
         launchLon={launchLon}
         onLaunchPositionChange={handleLaunchPositionChange}

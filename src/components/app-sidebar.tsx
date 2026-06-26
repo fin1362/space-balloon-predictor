@@ -34,9 +34,13 @@ export interface PredictorFormValues {
   numSamples: string
 }
 
+export interface ProgressInfo {
+  stage: string
+}
+
 interface AppSidebarProps {
   onSubmit: (values: PredictorFormValues) => void | Promise<void>
-  isLoading?: boolean
+  progress?: ProgressInfo | null
   launchLat: number
   launchLon: number
   onLaunchPositionChange: (lat: number, lon: number) => void
@@ -77,9 +81,23 @@ function findPreset(lat: number, lon: number) {
   return PRESETS.find(p => Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lon - lon) < 0.0001)
 }
 
+function formatProgressText(progress: ProgressInfo): string {
+  switch (progress.stage) {
+    case "preparing":
+      return "準備中..."
+    case "downloading_gfs":
+      return "気象データ取得中..."
+    case "running_simulation":
+    case "running_monte_carlo":
+      return "シミュレーション実行中..."
+    default:
+      return "処理中..."
+  }
+}
+
 export function AppSidebar({
   onSubmit,
-  isLoading = false,
+  progress = null,
   launchLat,
   launchLon,
   onLaunchPositionChange,
@@ -497,7 +515,6 @@ export function AppSidebar({
                   <Field>
                     <div className="flex items-center justify-between">
                       <FieldLabel className="text-xs flex items-center gap-1.5">
-                        <Dice5 className="size-3.5 text-muted-foreground" />
                         モンテカルロ法
                       </FieldLabel>
                       <button
@@ -526,7 +543,7 @@ export function AppSidebar({
                         }}
                         children={(field) => (
                           <Field>
-                            <FieldLabel className="text-xs" htmlFor={field.name}>バースト高度 標準偏差</FieldLabel>
+                            <FieldLabel className="text-xs" htmlFor={field.name}>バースト高度の標準偏差</FieldLabel>
                             <InputGroup>
                               <InputGroupInput
                                 id={field.name}
@@ -598,13 +615,13 @@ export function AppSidebar({
           <form.Subscribe
             selector={(state) => [state.canSubmit, state.isSubmitting]}
             children={([canSubmit, isSubmitting]) => (
-              <Button type="submit" disabled={!canSubmit || isSubmitting || isLoading} className="w-full">
-                {isSubmitting || isLoading ? (
+              <Button type="submit" disabled={!canSubmit || isSubmitting || !!progress} className="w-full">
+                {isSubmitting || progress ? (
                   <Loader className="animate-spin mr-2 h-4 w-4" />
                 ) : (
                   <Play className="mr-2 h-4 w-4" />
                 )}
-                予測
+                {progress ? formatProgressText(progress) : "予測"}
               </Button>
             )}
           />

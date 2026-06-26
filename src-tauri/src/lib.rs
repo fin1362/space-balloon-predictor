@@ -11,6 +11,7 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::copy;
 use std::path::Path;
+use tauri::{AppHandle, Emitter};
 
 use coords::{EARTH_RADIUS, Geodetic};
 use grib_reader::Atmosphere;
@@ -19,6 +20,11 @@ use simulation::{SimConfig, Simulator, Trajectory};
 use rand::Rng;
 use rand_distr::Normal;
 use rayon::prelude::*;
+
+#[derive(Serialize, Clone)]
+struct ProgressEvent {
+    stage: String,
+}
 
 #[derive(Serialize)]
 struct TrajectoryPoint {
@@ -228,6 +234,7 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
 
 #[tauri::command]
 async fn run_simulation(
+    app: AppHandle,
     launch_lat: f64,
     launch_lon: f64,
     launch_alt: f64,
@@ -249,8 +256,11 @@ async fn run_simulation(
     tokio::task::spawn_blocking(move || -> Result<SimulationResult, String> {
         let work_dir = Path::new(".").to_path_buf();
 
+        let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let (env_earliest, env_middle, env_latest, launch_offset_hours) =
             download_gfs_series(&work_dir, gfs_run, launch)?;
+
+        let _ = app.emit("progress", ProgressEvent { stage: "running_simulation".into() });
 
         let config = SimConfig {
             launch_site,
@@ -278,6 +288,7 @@ async fn run_simulation(
 
 #[tauri::command]
 async fn run_monte_carlo(
+    app: AppHandle,
     launch_lat: f64,
     launch_lon: f64,
     launch_alt: f64,
@@ -301,12 +312,15 @@ async fn run_monte_carlo(
     tokio::task::spawn_blocking(move || -> Result<MonteCarloResult, String> {
         let work_dir = Path::new(".").to_path_buf();
 
+        let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let (env_earliest, env_middle, env_latest, launch_offset_hours) =
             download_gfs_series(&work_dir, gfs_run, launch)?;
 
         let use_scatter = burst_altitude_std > 0.0;
 
         let sample_count = if use_scatter { num_samples } else { 1 };
+
+        let _ = app.emit("progress", ProgressEvent { stage: "running_monte_carlo".into() });
 
         // サンプルするバースト高度を事前に生成
         let burst_altitudes: Vec<f64> = if use_scatter {
@@ -368,6 +382,7 @@ async fn run_monte_carlo(
         let sum_lon: f64 = points.iter().map(|p| p.landing_lon).sum();
 
         // 平均バースト高度の経路を計算
+        let _ = app.emit("progress", ProgressEvent { stage: "running_monte_carlo".into() });
         let mean_config = SimConfig {
             launch_site,
             ascent_rate_m_s: ascent_rate,
