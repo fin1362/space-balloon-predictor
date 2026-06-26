@@ -134,7 +134,4 @@
         @apply font-sans;
         overflow: hidden;
     }
-    .cursor-crosshair canvas {
-        cursor: crosshair !important;
-    }
 }

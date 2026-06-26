@@ -1,15 +1,16 @@
-import { Map, Marker, useMap, useControl } from "@vis.gl/react-maplibre"
+import { Map, Marker, useMap } from "@vis.gl/react-maplibre"
 import { MapboxOverlay } from "@deck.gl/mapbox"
 import { PathLayer, ScatterplotLayer } from "@deck.gl/layers"
 import maplibregl from "maplibre-gl"
-import { useMemo, useEffect, useCallback } from "react"
-import "maplibre-gl/dist/maplibre-gl.css"
+import { useMemo, useEffect, useCallback, useState, useRef } from "react"
+import "../maplibre-gl.css"
 
 interface TrajectoryPoint {
   lat: number
   lon: number
   alt: number
 }
+
 
 interface MonteCarloPoint {
   landing_lat: number
@@ -41,20 +42,46 @@ interface TrajectoryMapProps {
   onMapClick?: (lat: number, lon: number) => void
 }
 
-function DeckGLOverlay(props: { layers: any[]; interleaved?: boolean }) {
-  const overlay = useControl<MapboxOverlay>(() => new MapboxOverlay(props))
-  overlay.setProps(props)
+function DeckGLOverlay({ layers, interleaved }: { layers: any[]; interleaved?: boolean }) {
+  const { current: map } = useMap()
+  const overlayRef = useRef<MapboxOverlay | null>(null)
+
+  useEffect(() => {
+    if (!map) return
+    const overlay = new MapboxOverlay({ layers, interleaved, getCursor: () => "" })
+    map.addControl(overlay as any)
+    overlayRef.current = overlay
+    return () => {
+      map.removeControl(overlay as any)
+      overlayRef.current = null
+    }
+  }, [map])
+
+  useEffect(() => {
+    overlayRef.current?.setProps({ layers })
+  }, [layers])
+
   return null
 }
 
 function MapController({
   trajectoryPoints,
   monteCarloPoints,
+  cursorValue,
 }: {
   trajectoryPoints: TrajectoryPoint[] | null
   monteCarloPoints?: MonteCarloPoint[] | null
+  cursorValue: string
 }) {
   const { current: map } = useMap()
+
+  useEffect(() => {
+    if (!map) return
+    const canvasContainer = map.getContainer().querySelector<HTMLElement>('.maplibregl-canvas-container')
+    if (canvasContainer) {
+      canvasContainer.style.cursor = cursorValue
+    }
+  }, [map, cursorValue])
 
   useEffect(() => {
     if (!map) return
@@ -106,6 +133,8 @@ export function TrajectoryMap({
   mapSelectionMode = false,
   onMapClick,
 }: TrajectoryMapProps) {
+  const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null)
+
   const handleMapClick = useCallback((e: any) => {
     if (!mapSelectionMode || !onMapClick) return
     const { lat, lng } = e.lngLat
@@ -130,13 +159,75 @@ export function TrajectoryMap({
     return [...ascent, ...descent.slice(1)]
   }, [predictionData, monteCarloData])
 
+  const activeSelectedIndex = useMemo(() => {
+    if (selectedPointIndex !== null && selectedPointIndex !== undefined) {
+      return selectedPointIndex
+    }
+    if (!monteCarloData || !monteCarloData.points || monteCarloData.points.length === 0) {
+      return null
+    }
+    let bestIdx = 0
+    let minDiff = Math.abs(monteCarloData.points[0]?.deviation_sigma ?? 0)
+    for (let i = 1; i < monteCarloData.points.length; i++) {
+      const diff = Math.abs(monteCarloData.points[i]?.deviation_sigma ?? 0)
+      if (diff < minDiff) {
+        minDiff = diff
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  }, [selectedPointIndex, monteCarloData])
+
   const deckLayers = useMemo(() => {
     const layers: any[] = []
 
     if (monteCarloData && monteCarloData.points.length > 0) {
-      // 選択中のサンプルの経路
-      if (selectedPointIndex !== null && selectedPointIndex !== undefined) {
-        const traj = monteCarloData.trajectories[selectedPointIndex]
+      if (
+        hoveredPointIndex !== null && 
+        hoveredPointIndex !== undefined && 
+        hoveredPointIndex !== activeSelectedIndex
+      ) {
+        const hoverTraj = monteCarloData.trajectories?.[hoveredPointIndex]
+        if (hoverTraj) {
+          const hoverAscent: [number, number, number][] = (hoverTraj.ascent_path ?? []).map((p) => [p.lon, p.lat, p.alt])
+          const hoverDescent: [number, number, number][] = (hoverTraj.descent_path ?? []).map((p) => [p.lon, p.lat, p.alt])
+
+          if (hoverAscent.length >= 2) {
+            layers.push(
+              new PathLayer({
+                id: "mc-hovered-ascent",
+                data: [{ path: hoverAscent }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [255, 100, 100, 80],
+                widthUnits: "pixels",
+                getWidth: 4,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
+          }
+
+          if (hoverDescent.length >= 2) {
+            layers.push(
+              new PathLayer({
+                id: "mc-hovered-descent",
+                data: [{ path: hoverDescent }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [100, 160, 255, 80],
+                widthUnits: "pixels",
+                getWidth: 4,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
+          }
+        }
+      }
+
+      if (activeSelectedIndex !== null && activeSelectedIndex !== undefined) {
+        const traj = monteCarloData.trajectories?.[activeSelectedIndex]
         if (traj) {
           const selAscent: [number, number, number][] = (traj.ascent_path ?? []).map((p) => [p.lon, p.lat, p.alt])
           const selDescent: [number, number, number][] = (traj.descent_path ?? []).map((p) => [p.lon, p.lat, p.alt])
@@ -175,47 +266,6 @@ export function TrajectoryMap({
         }
       }
 
-      // 平均経路（上昇・落下）
-      const meanAscent: [number, number, number][] = (
-        monteCarloData.mean_ascent_path ?? []
-      ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt])
-      const meanDescent: [number, number, number][] = (
-        monteCarloData.mean_descent_path ?? []
-      ).map((p: TrajectoryPoint) => [p.lon, p.lat, p.alt])
-
-      if (meanAscent.length >= 2) {
-        layers.push(
-          new PathLayer({
-            id: "mc-mean-ascent",
-            data: [{ path: meanAscent }],
-            getPath: (d: { path: [number, number, number][] }) => d.path,
-            getColor: [239, 68, 68, 180],
-            widthUnits: "pixels",
-            getWidth: 3,
-            billboard: true,
-            rounded: true,
-            jointRounded: true,
-          }),
-        )
-      }
-
-      if (meanDescent.length >= 2) {
-        layers.push(
-          new PathLayer({
-            id: "mc-mean-descent",
-            data: [{ path: meanDescent }],
-            getPath: (d: { path: [number, number, number][] }) => d.path,
-            getColor: [59, 130, 246, 180],
-            widthUnits: "pixels",
-            getWidth: 3,
-            billboard: true,
-            rounded: true,
-            jointRounded: true,
-          }),
-        )
-      }
-
-      // 散布点（sigma > 0 の場合のみ）
       if (monteCarloData.points.length > 1) {
         layers.push(
           new ScatterplotLayer({
@@ -223,52 +273,43 @@ export function TrajectoryMap({
             data: monteCarloData.points,
             getPosition: (d: MonteCarloPoint) => [d.landing_lon, d.landing_lat],
             getFillColor: (_d: MonteCarloPoint, { index }: { index: number }) =>
-              selectedPointIndex === index
+              activeSelectedIndex === index
                 ? [255, 255, 255, 255]
                 : deviationToColor(_d.deviation_sigma),
             getLineColor: (_d: MonteCarloPoint, { index }: { index: number }) =>
-              selectedPointIndex === index
+              activeSelectedIndex === index
                 ? [0, 0, 0, 255]
                 : [255, 255, 255, 220],
             getRadius: (_d: MonteCarloPoint, { index }: { index: number }) =>
-              selectedPointIndex === index ? 120 : 80,
+              activeSelectedIndex === index ? 120 : 80,
             radiusUnits: "meters",
-            radiusMinPixels: 4,
-            radiusMaxPixels: 12,
+            radiusMinPixels: 6,
+            radiusMaxPixels: 6,
             stroked: true,
-            lineWidthMinPixels: selectedPointIndex !== null ? 2 : 1,
+            lineWidthMinPixels: 0,
+            lineWidthMaxPixels: 3,
+            billboard: true,
             pickable: true,
-            onClick: (info: any) => {
-              if (info.object) {
+            onHover: (info: any) => {
+              console.log("onHover", info.object ? "object" : "null", info.index)
+              if (info.object && monteCarloData) {
                 const idx = monteCarloData.points.indexOf(info.object)
-                onPointSelect?.(idx === selectedPointIndex ? null : idx)
+                setHoveredPointIndex(idx !== -1 ? idx : null)
+              } else {
+                setHoveredPointIndex(null)
               }
             },
+            onClick: (info: any) => {
+              console.log("onClick", info.index, "activeSelectedIndex", activeSelectedIndex)
+              if (info.index !== undefined && info.index !== -1) {
+                onPointSelect?.(info.index === activeSelectedIndex ? null : info.index)
+              }
+            },
+            onDrag: () => {},
           }),
         )
       }
 
-      // 平均着地点
-      if (
-        monteCarloData.mean_landing_lat !== undefined &&
-        monteCarloData.mean_landing_lon !== undefined
-      ) {
-        layers.push(
-          new ScatterplotLayer({
-            id: "monte-carlo-mean-point",
-            data: [{ lat: monteCarloData.mean_landing_lat, lon: monteCarloData.mean_landing_lon }],
-            getPosition: (d: { lat: number; lon: number }) => [d.lon, d.lat],
-            getFillColor: [255, 255, 255, 255],
-            getRadius: 120,
-            radiusUnits: "meters",
-            radiusMinPixels: 6,
-            radiusMaxPixels: 16,
-            stroked: true,
-            getLineColor: [0, 0, 0, 255],
-            lineWidthMinPixels: 2,
-          }),
-        )
-      }
     } else if (predictionData) {
       const ascentPath: [number, number, number][] = (
         predictionData.ascent_path ?? []
@@ -311,7 +352,7 @@ export function TrajectoryMap({
     }
 
     return layers
-  }, [predictionData, monteCarloData, selectedPointIndex])
+  }, [predictionData, monteCarloData, activeSelectedIndex, hoveredPointIndex, onPointSelect])
 
   const landingPos = useMemo(() => {
     if (monteCarloData) return null
@@ -323,8 +364,14 @@ export function TrajectoryMap({
     return monteCarloData?.points ?? null
   }, [monteCarloData])
 
+  const mapCursor = useMemo(() => {
+    if (mapSelectionMode) return "crosshair"
+    if (hoveredPointIndex !== null) return "pointer"
+    return "default"
+  }, [mapSelectionMode, hoveredPointIndex])
+
   return (
-    <div className={`w-full h-full ${mapSelectionMode ? "cursor-crosshair" : ""}`}>
+    <div className="w-full h-full">
       <Map
         initialViewState={{
           longitude: 135,
@@ -335,11 +382,12 @@ export function TrajectoryMap({
         mapStyle="https://tiles.openfreemap.org/styles/liberty"
         onClick={handleMapClick}
       >
-        <MapController trajectoryPoints={allPoints} monteCarloPoints={monteCarloPoints} />
+        <MapController trajectoryPoints={allPoints} monteCarloPoints={monteCarloPoints} cursorValue={mapCursor} />
 
-        {deckLayers.length > 0 && (
-          <DeckGLOverlay layers={deckLayers} interleaved={true} />
-        )}
+        <DeckGLOverlay 
+          layers={deckLayers} 
+          interleaved={true} 
+        />
 
         {hasLaunchPos && (
           <Marker
@@ -347,7 +395,7 @@ export function TrajectoryMap({
             latitude={launchLat!}
             anchor="bottom"
           >
-            <div className="relative">
+            <div className="relative cursor-pointer">
               <div className="w-3 h-3 bg-red-500 border-2 border-white rounded-full shadow-lg" />
               <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-bold bg-background/80 px-1 rounded whitespace-nowrap">
                 放球
@@ -362,7 +410,7 @@ export function TrajectoryMap({
             latitude={landingPos.lat}
             anchor="bottom"
           >
-            <div className="relative">
+            <div className="relative cursor-pointer">
               <div className="w-3 h-3 bg-blue-500 border-2 border-white rounded-full shadow-lg" />
               <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-bold bg-background/80 px-1 rounded whitespace-nowrap">
                 着地
@@ -373,7 +421,7 @@ export function TrajectoryMap({
       </Map>
 
       {monteCarloData && monteCarloData.points.length > 0 && (
-        <div className="absolute bottom-4 right-4 z-10 bg-background/90 border rounded-lg p-3 text-xs space-y-1.5">
+        <div className="absolute top-4 right-4 z-10 bg-background/90 border rounded-lg p-3 text-xs space-y-1.5">
           <p className="font-medium text-[11px] mb-1">偏差 (σ)</p>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-[rgb(34,197,94)]" />
@@ -386,10 +434,6 @@ export function TrajectoryMap({
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-[rgb(239,68,68)]" />
             <span>±2σ 超</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-white border-2 border-black" />
-            <span>平均着地点</span>
           </div>
         </div>
       )}
