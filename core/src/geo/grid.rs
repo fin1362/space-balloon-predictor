@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use crate::interpolation::bilinear_interpolation;
+use crate::geo::interpolation::bilinear_interpolation;
 
 /// 2次元補間のための事前計算済みインデックス・比率
+#[derive(Clone)]
 pub struct GridInterpolationKey {
     pub(crate) lat_prev: usize,
     pub(crate) lat_next: usize,
@@ -23,7 +24,7 @@ pub(crate) struct LatLonGrid {
 }
 
 impl LatLonGrid {
-    /// ソート済み座標配列に対して2分探索でターゲットを挟む2つのインデックスを返す
+    /// ソート済み座標配列に対して2分探索でターゲットを挟む2つのインデックスを返すヘルパー関数
     /// 戻り値は (ターゲットより前のインデックス, ターゲットより後のインデックス)
     fn find_bracket(coords: &[f32], target: f32) -> (usize, usize) {
         let is_ascending = coords[0] < *coords.last().unwrap();
@@ -40,7 +41,7 @@ impl LatLonGrid {
         }
     }
 
-    /// 2インデックス間の補間比率 (0.0〜1.0) を算出する
+    /// 2インデックス間の補間比率 (0.0〜1.0) を算出するヘルパー関数
     /// 経度方向では 0°/360° の巡回を考慮する
     fn calc_ratio(
         coords: &[f32],
@@ -70,8 +71,7 @@ impl LatLonGrid {
         (offset_from_prev / span).clamp(0.0, 1.0)
     }
 
-    /// 2分探索で目的の緯度を挟み込むペアを取得する
-    /// 範囲外の場合は端の座標で丸める
+    /// 端の座標で丸めるヘルパー関数
     fn clamp_lat_index(coords: &[f32], height: usize, target: f32) -> usize {
         let top_is_first = coords[0] > coords[height - 1];
         let max_val = coords[0].max(coords[height - 1]);
@@ -84,9 +84,7 @@ impl LatLonGrid {
         }
     }
 
-    /// 2分探索で目的の経度を挟み込むペアを取得する
-    /// 範囲外の場合は端の座標で丸める
-    /// 経度が0-360度まである場合は端同士が隣接するので折り返す
+    /// 経度が0-360度まである場合は端同士が隣接するので折り返すヘルパー関数
     fn clamp_lon_index(coords: &[f32], width: usize, target: f32) -> (usize, usize) {
         let is_global = coords[0] <= 1.0 && coords[width - 1] >= 358.0;
         if is_global {

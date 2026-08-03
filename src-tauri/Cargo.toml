@@ -24,10 +24,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # fix for https://github.com/tauri-apps/tauri/issues/15525
 time = "=0.3.47"
-reqwest = { version = "0.13.4", features = ["blocking"] }
+space-balloon-predictor-rs = { path = "../core" }
+reqwest = { workspace = true }
 tokio = { version = "1.52.3", features = ["full"] }
-grib = { version = "0.15.6", default-features = false }
-chrono = "0.4"
+chrono = { workspace = true }
 rayon = "1"
 rand = "0.8"
 rand_distr = "0.4"
+log = { workspace = true }
+env_logger = { workspace = true }

@@ -2,6 +2,11 @@
 // 気体定数をR, 気体の分子量をMとおくと，R_d=R/Mと表される
 const GAS_CONSTANT_DRY_AIR: f64 = 287.058;
 
+// 赤道半径（地球長半径a）
+pub const WGS84_A: f64 = 6_378_137.0;
+// 第一離心率の2乗
+pub const WGS84_E2: f64 = 0.00669437999014;
+
 /// 風速ベクトル (東西成分u, 南北成分v)
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct WindVector {

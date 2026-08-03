@@ -5,8 +5,10 @@ pub fn lerp(v0: f64, v1: f64, ratio: f64) -> f64 {
 
 /// 2次元の線形補間
 pub fn bilinear_interpolation(
-    v00: f64, v01: f64,
-    v10: f64, v11: f64,
+    v00: f64,
+    v01: f64,
+    v10: f64,
+    v11: f64,
     ratio_x: f64,
     ratio_y: f64,
 ) -> f64 {

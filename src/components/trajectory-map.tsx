@@ -380,6 +380,7 @@ export function TrajectoryMap({
         }}
         style={{ width: "100%", height: "100%" }}
         mapStyle="https://tiles.openfreemap.org/styles/liberty"
+        minZoom={2}
         onClick={handleMapClick}
       >
         <MapController trajectoryPoints={allPoints} monteCarloPoints={monteCarloPoints} cursorValue={mapCursor} />

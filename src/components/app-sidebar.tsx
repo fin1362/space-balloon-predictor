@@ -87,6 +87,8 @@ function formatProgressText(progress: ProgressInfo): string {
       return "準備中..."
     case "downloading_gfs":
       return "気象データ取得中..."
+    case "decoding_grib":
+      return "気象データを解析中..."
     case "running_simulation":
     case "running_monte_carlo":
       return "シミュレーション実行中..."

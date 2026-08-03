@@ -1,11 +1,3 @@
-mod coords;
-mod grib_reader;
-mod grid;
-mod interpolation;
-mod kml;
-mod physics;
-mod simulation;
-
 use chrono::{DateTime, Timelike, Utc};
 use serde::Serialize;
 use std::fs::File;
@@ -13,9 +5,10 @@ use std::io::copy;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
-use coords::{EARTH_RADIUS, Geodetic};
-use grib_reader::Atmosphere;
-use simulation::{SimConfig, Simulator, Trajectory};
+use space_balloon_predictor_rs::dataset::Dataset;
+use space_balloon_predictor_rs::engine::simulation::{SimConfig, Simulator, Trajectory};
+use space_balloon_predictor_rs::geo::coords::{EARTH_RADIUS, Geodetic};
+use space_balloon_predictor_rs::grib::PressureUnit;
 
 use rand::Rng;
 use rand_distr::Normal;
@@ -69,6 +62,39 @@ struct MonteCarloResult {
     trajectories: Vec<MonteCarloTrajectory>,
 }
 
+/// 成層圏（高度11,000m以上）に滞在した時間（秒）を返す
+fn stratosphere_duration_s(trajectory: &Trajectory) -> f64 {
+    const TROPOPAUSE_M: f64 = 11_000.0;
+    let mut enter_time: Option<f64> = None;
+    let mut total = 0.0;
+
+    for w in trajectory.states.windows(2) {
+        let a = &w[0];
+        let b = &w[1];
+        let a_above = a.alt >= TROPOPAUSE_M;
+        let b_above = b.alt >= TROPOPAUSE_M;
+
+        if a_above && enter_time.is_none() {
+            enter_time = Some(a.time);
+        }
+
+        if let Some(t0) = enter_time {
+            if !b_above {
+                total += b.time - t0;
+                enter_time = None;
+            }
+        }
+    }
+
+    if let Some(t0) = enter_time {
+        if let Some(last) = trajectory.states.last() {
+            total += last.time - t0;
+        }
+    }
+
+    total
+}
+
 fn download_gfs_file(
     work_dir: &Path,
     date_str: &str,
@@ -115,7 +141,7 @@ fn download_gfs_series(
     work_dir: &Path,
     gfs_run_time: DateTime<Utc>,
     launch_time: DateTime<Utc>,
-) -> Result<(Atmosphere, Atmosphere, Atmosphere, f64), String> {
+) -> Result<Vec<String>, String> {
     let cycle_hour = (gfs_run_time.hour() / 6) * 6;
     let rounded_gfs_time = gfs_run_time
         .date_naive()
@@ -151,22 +177,7 @@ fn download_gfs_series(
     let path_mid = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 3)?;
     let path_high = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 6)?;
 
-    println!("Parsing GRIB2 files...");
-    let ((r1, r2), r3) = rayon::join(
-        || rayon::join(
-            || Atmosphere::new(&path_low).map_err(|e| e.to_string()),
-            || Atmosphere::new(&path_mid).map_err(|e| e.to_string()),
-        ),
-        || Atmosphere::new(&path_high).map_err(|e| e.to_string()),
-    );
-    let (env_earliest, env_middle, env_latest) = (r1?, r2?, r3?);
-
-    Ok((
-        env_earliest,
-        env_middle,
-        env_latest,
-        launch_offset_hours,
-    ))
+    Ok(vec![path_low, path_mid, path_high])
 }
 
 fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> SimulationResult {
@@ -204,7 +215,7 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
         .map(|s| s.alt)
         .fold(0.0, f64::max);
 
-    let stratosphere_duration_s = trajectory.stratosphere_duration_s();
+    let stratosphere_duration = stratosphere_duration_s(trajectory);
 
     let (landing_lat, landing_lon, total_duration_s, drift_km) =
         if let Some(last) = trajectory.states.last() {
@@ -223,7 +234,7 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
     SimulationResult {
         ascent_path,
         descent_path,
-        stratosphere_duration_s,
+        stratosphere_duration_s: stratosphere_duration,
         max_altitude,
         landing_lat,
         landing_lon,
@@ -257,8 +268,17 @@ async fn run_simulation(
         let work_dir = Path::new(".").to_path_buf();
 
         let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
-        let (env_earliest, env_middle, env_latest, launch_offset_hours) =
+        let file_paths =
             download_gfs_series(&work_dir, gfs_run, launch)?;
+
+        let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
+
+        let dataset = Dataset::from_grib_files(
+            &file_paths,
+            launch,
+            PressureUnit::Pascal,
+        )
+        .map_err(|e| format!("Failed to load GRIB data: {}", e))?;
 
         let _ = app.emit("progress", ProgressEvent { stage: "running_simulation".into() });
 
@@ -271,13 +291,7 @@ async fn run_simulation(
         };
 
         println!("Running simulation...");
-        let simulator = Simulator::new(
-            config,
-            env_earliest,
-            env_middle,
-            env_latest,
-            launch_offset_hours,
-        );
+        let simulator = Simulator::new(config, dataset, launch);
         let trajectory = simulator.run();
 
         Ok(trajectory_to_result(&trajectory, launch_site))
@@ -313,8 +327,17 @@ async fn run_monte_carlo(
         let work_dir = Path::new(".").to_path_buf();
 
         let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
-        let (env_earliest, env_middle, env_latest, launch_offset_hours) =
+        let file_paths =
             download_gfs_series(&work_dir, gfs_run, launch)?;
+
+        let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
+
+        let dataset = Dataset::from_grib_files(
+            &file_paths,
+            launch,
+            PressureUnit::Pascal,
+        )
+        .map_err(|e| format!("Failed to load GRIB data: {}", e))?;
 
         let use_scatter = burst_altitude_std > 0.0;
 
@@ -352,13 +375,7 @@ async fn run_monte_carlo(
                     dt: 5.0,
                 };
 
-                let simulator = Simulator::new(
-                    config,
-                    env_earliest.clone(),
-                    env_middle.clone(),
-                    env_latest.clone(),
-                    launch_offset_hours,
-                );
+                let simulator = Simulator::new(config, dataset.clone(), launch);
                 let trajectory = simulator.run();
                 let result = trajectory_to_result(&trajectory, launch_site);
 
@@ -390,13 +407,7 @@ async fn run_monte_carlo(
             burst_altitude_m: burst_altitude_mean,
             dt: 5.0,
         };
-        let mean_sim = Simulator::new(
-            mean_config,
-            env_earliest,
-            env_middle,
-            env_latest,
-            launch_offset_hours,
-        );
+        let mean_sim = Simulator::new(mean_config, dataset, launch);
         let mean_trajectory = mean_sim.run();
         let mean_result = trajectory_to_result(&mean_trajectory, launch_site);
 
@@ -414,16 +425,12 @@ async fn run_monte_carlo(
     .map_err(|e| format!("Task failed: {}", e))?
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    env_logger::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, run_simulation, run_monte_carlo])
+        .invoke_handler(tauri::generate_handler![run_simulation, run_monte_carlo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
