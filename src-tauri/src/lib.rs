@@ -3,6 +3,8 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::copy;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 use space_balloon_predictor_rs::dataset::{Dataset, GfsRegion, gfs_filter_url};
@@ -16,8 +18,12 @@ use rand_distr::Normal;
 use rayon::prelude::*;
 
 #[derive(Serialize, Clone)]
-struct ProgressEvent {
-    stage: String,
+#[serde(tag = "stage", rename_all = "snake_case")]
+enum ProgressEvent {
+    DownloadingGfs { current: u32, total: u32 },
+    DecodingGrib,
+    RunningSimulation,
+    RunningMonteCarlo { current: u32, total: u32 },
 }
 
 #[derive(Serialize)]
@@ -139,6 +145,7 @@ fn download_gfs_file(
 }
 
 fn download_gfs_series(
+    app: &AppHandle,
     work_dir: &Path,
     gfs_run_time: DateTime<Utc>,
     launch_time: DateTime<Utc>,
@@ -181,13 +188,32 @@ fn download_gfs_series(
         region.right_lon
     );
 
-    let path_low = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low, &region)?;
-    let path_mid =
-        download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 3, &region)?;
-    let path_high =
-        download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 6, &region)?;
+    let forecast_hours = [
+        forecast_hour_low,
+        forecast_hour_low + 3,
+        forecast_hour_low + 6,
+    ];
+    let total_files = forecast_hours.len() as u32;
 
-    Ok(vec![path_low, path_mid, path_high])
+    let mut paths = Vec::with_capacity(forecast_hours.len());
+    for (i, forecast_hour) in forecast_hours.iter().enumerate() {
+        let _ = app.emit(
+            "progress",
+            ProgressEvent::DownloadingGfs {
+                current: (i + 1) as u32,
+                total: total_files,
+            },
+        );
+        paths.push(download_gfs_file(
+            work_dir,
+            &date_str,
+            &cycle_str,
+            *forecast_hour,
+            &region,
+        )?);
+    }
+
+    Ok(paths)
 }
 
 fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> SimulationResult {
@@ -277,11 +303,10 @@ async fn run_simulation(
     tokio::task::spawn_blocking(move || -> Result<SimulationResult, String> {
         let work_dir = Path::new(".").to_path_buf();
 
-        let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let file_paths =
-            download_gfs_series(&work_dir, gfs_run, launch, launch_lat, launch_lon)?;
+            download_gfs_series(&app, &work_dir, gfs_run, launch, launch_lat, launch_lon)?;
 
-        let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
+        let _ = app.emit("progress", ProgressEvent::DecodingGrib);
 
         let dataset = Dataset::from_grib_files(
             &file_paths,
@@ -290,7 +315,7 @@ async fn run_simulation(
         )
         .map_err(|e| format!("Failed to load GRIB data: {}", e))?;
 
-        let _ = app.emit("progress", ProgressEvent { stage: "running_simulation".into() });
+        let _ = app.emit("progress", ProgressEvent::RunningSimulation);
 
         let config = SimConfig {
             launch_site,
@@ -336,11 +361,10 @@ async fn run_monte_carlo(
     tokio::task::spawn_blocking(move || -> Result<MonteCarloResult, String> {
         let work_dir = Path::new(".").to_path_buf();
 
-        let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let file_paths =
-            download_gfs_series(&work_dir, gfs_run, launch, launch_lat, launch_lon)?;
+            download_gfs_series(&app, &work_dir, gfs_run, launch, launch_lat, launch_lon)?;
 
-        let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
+        let _ = app.emit("progress", ProgressEvent::DecodingGrib);
 
         let dataset = Dataset::from_grib_files(
             &file_paths,
@@ -353,7 +377,13 @@ async fn run_monte_carlo(
 
         let sample_count = if use_scatter { num_samples } else { 1 };
 
-        let _ = app.emit("progress", ProgressEvent { stage: "running_monte_carlo".into() });
+        let _ = app.emit(
+            "progress",
+            ProgressEvent::RunningMonteCarlo {
+                current: 0,
+                total: sample_count,
+            },
+        );
 
         // サンプルするバースト高度を事前に生成
         let burst_altitudes: Vec<f64> = if use_scatter {
@@ -368,6 +398,10 @@ async fn run_monte_carlo(
         };
 
         // Rayon で並列シミュレーション
+        let completed = Arc::new(AtomicUsize::new(0));
+        let completed_inner = completed.clone();
+        let app_inner = app.clone();
+
         let (points, trajectories): (Vec<MonteCarloPoint>, Vec<MonteCarloTrajectory>) = burst_altitudes
             .par_iter()
             .map(|&sampled_burst| {
@@ -401,6 +435,15 @@ async fn run_monte_carlo(
                     descent_path: result.descent_path,
                 };
 
+                let done = completed_inner.fetch_add(1, Ordering::Relaxed) + 1;
+                let _ = app_inner.emit(
+                    "progress",
+                    ProgressEvent::RunningMonteCarlo {
+                        current: done as u32,
+                        total: sample_count,
+                    },
+                );
+
                 (mc_point, mc_traj)
             })
             .unzip();
@@ -409,7 +452,6 @@ async fn run_monte_carlo(
         let sum_lon: f64 = points.iter().map(|p| p.landing_lon).sum();
 
         // 平均バースト高度の経路を計算
-        let _ = app.emit("progress", ProgressEvent { stage: "running_monte_carlo".into() });
         let mean_config = SimConfig {
             launch_site,
             ascent_rate_m_s: ascent_rate,

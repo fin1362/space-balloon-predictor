@@ -34,9 +34,12 @@ export interface PredictorFormValues {
   numSamples: string
 }
 
-export interface ProgressInfo {
-  stage: string
-}
+export type ProgressInfo =
+  | { stage: "preparing" }
+  | { stage: "downloading_gfs"; current: number; total: number }
+  | { stage: "decoding_grib" }
+  | { stage: "running_simulation" }
+  | { stage: "running_monte_carlo"; current: number; total: number }
 
 interface AppSidebarProps {
   onSubmit: (values: PredictorFormValues) => void | Promise<void>
@@ -86,12 +89,13 @@ function formatProgressText(progress: ProgressInfo): string {
     case "preparing":
       return "準備中..."
     case "downloading_gfs":
-      return "気象データ取得中..."
+      return `気象データ取得中 (${progress.current}/${progress.total})...`
     case "decoding_grib":
       return "気象データを解析中..."
     case "running_simulation":
-    case "running_monte_carlo":
       return "シミュレーション実行中..."
+    case "running_monte_carlo":
+      return `シミュレーション実行中 (${progress.current}/${progress.total})...`
     default:
       return "処理中..."
   }
