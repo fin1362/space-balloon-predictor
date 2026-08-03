@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pressure_unit,
         } => {
             let launch_site = Geodetic { lat, lon, alt };
-            let forecasts = dataset::resolve_gfs_forecasts(gfs_run_time, launch_time)?;
+            let forecasts = dataset::resolve_gfs_forecasts(gfs_run_time, launch_time, lat, lon)?;
 
             let mut local_paths: Vec<String> = Vec::new();
             for f in &forecasts.forecasts {

@@ -5,7 +5,8 @@ use std::io::copy;
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
-use space_balloon_predictor_rs::dataset::Dataset;
+use space_balloon_predictor_rs::dataset::{Dataset, GfsRegion, gfs_filter_url};
+use space_balloon_predictor_rs::dataset::gfs::REGION_MARGIN_DEG;
 use space_balloon_predictor_rs::engine::simulation::{SimConfig, Simulator, Trajectory};
 use space_balloon_predictor_rs::geo::coords::{EARTH_RADIUS, Geodetic};
 use space_balloon_predictor_rs::grib::PressureUnit;
@@ -100,11 +101,14 @@ fn download_gfs_file(
     date_str: &str,
     cycle_str: &str,
     forecast_hour: u32,
+    region: &GfsRegion,
 ) -> Result<String, String> {
-    let filename = format!("gfs.t{}z.pgrb2full.0p50.f{:03}", cycle_str, forecast_hour);
     let local_path = work_dir.join(format!(
-        "gfs_{}_{}_f{:03}.grib2",
-        date_str, cycle_str, forecast_hour
+        "gfs_{}_{}_f{:03}_{}.grib2",
+        date_str,
+        cycle_str,
+        forecast_hour,
+        region.cache_key()
     ));
 
     if local_path.exists() {
@@ -115,10 +119,7 @@ fn download_gfs_file(
         return Ok(local_path.to_string_lossy().into_owned());
     }
 
-    let url = format!(
-        "https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{}/{}/atmos/{}",
-        date_str, cycle_str, filename
-    );
+    let url = gfs_filter_url(date_str, cycle_str, forecast_hour, region);
 
     println!("  Downloading '{}' from NOAA NOMADS...", url);
     let mut response = reqwest::blocking::get(&url).map_err(|e| e.to_string())?;
@@ -141,6 +142,8 @@ fn download_gfs_series(
     work_dir: &Path,
     gfs_run_time: DateTime<Utc>,
     launch_time: DateTime<Utc>,
+    launch_lat: f64,
+    launch_lon: f64,
 ) -> Result<Vec<String>, String> {
     let cycle_hour = (gfs_run_time.hour() / 6) * 6;
     let rounded_gfs_time = gfs_run_time
@@ -164,18 +167,25 @@ fn download_gfs_series(
 
     let date_str = rounded_gfs_time.format("%Y%m%d").to_string();
     let cycle_str = rounded_gfs_time.format("%H").to_string();
+    let region = GfsRegion::around(launch_lat, launch_lon, REGION_MARGIN_DEG);
 
     println!(
-        "Downloading GFS (f{:03}→f{:03}→f{:03}), offset {:.2}h",
+        "Downloading GFS (f{:03}→f{:03}→f{:03}), offset {:.2}h, region lat[{}, {}] lon[{}, {}]",
         forecast_hour_low,
         forecast_hour_low + 3,
         forecast_hour_low + 6,
-        launch_offset_hours
+        launch_offset_hours,
+        region.bottom_lat,
+        region.top_lat,
+        region.left_lon,
+        region.right_lon
     );
 
-    let path_low = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low)?;
-    let path_mid = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 3)?;
-    let path_high = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 6)?;
+    let path_low = download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low, &region)?;
+    let path_mid =
+        download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 3, &region)?;
+    let path_high =
+        download_gfs_file(work_dir, &date_str, &cycle_str, forecast_hour_low + 6, &region)?;
 
     Ok(vec![path_low, path_mid, path_high])
 }
@@ -269,7 +279,7 @@ async fn run_simulation(
 
         let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let file_paths =
-            download_gfs_series(&work_dir, gfs_run, launch)?;
+            download_gfs_series(&work_dir, gfs_run, launch, launch_lat, launch_lon)?;
 
         let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
 
@@ -328,7 +338,7 @@ async fn run_monte_carlo(
 
         let _ = app.emit("progress", ProgressEvent { stage: "downloading_gfs".into() });
         let file_paths =
-            download_gfs_series(&work_dir, gfs_run, launch)?;
+            download_gfs_series(&work_dir, gfs_run, launch, launch_lat, launch_lon)?;
 
         let _ = app.emit("progress", ProgressEvent { stage: "decoding_grib".into() });
 

@@ -1,7 +1,7 @@
 pub mod gfs;
 pub mod loader;
 
-pub use gfs::{GfsForecast, GfsForecastSet, gfs_file_url, resolve_gfs_forecasts};
+pub use gfs::{GfsForecast, GfsForecastSet, GfsRegion, gfs_filter_url, resolve_gfs_forecasts};
 
 use std::sync::Arc;
 
