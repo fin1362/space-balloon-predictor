@@ -3,37 +3,19 @@ import { MapboxOverlay } from "@deck.gl/mapbox"
 import { PathLayer, ScatterplotLayer } from "@deck.gl/layers"
 import maplibregl from "maplibre-gl"
 import { useMemo, useEffect, useCallback, useState, useRef } from "react"
+import { TrajectorySummary } from "@/components/trajectory-summary"
+import { findClosestSigmaIndex } from "@/lib/geo"
+import type {
+  MonteCarloPoint,
+  MonteCarloResult,
+  PredictionData,
+  TrajectoryPoint,
+} from "@/types"
 import "../maplibre-gl.css"
 
-interface TrajectoryPoint {
-  lat: number
-  lon: number
-  alt: number
-}
-
-
-interface MonteCarloPoint {
-  landing_lat: number
-  landing_lon: number
-  burst_altitude: number
-  deviation_sigma: number
-}
-
-interface MonteCarloTrajectory {
-  ascent_path: TrajectoryPoint[]
-  descent_path: TrajectoryPoint[]
-}
-
 interface TrajectoryMapProps {
-  predictionData: any
-  monteCarloData?: {
-    points: MonteCarloPoint[]
-    mean_landing_lat: number
-    mean_landing_lon: number
-    mean_ascent_path: TrajectoryPoint[]
-    mean_descent_path: TrajectoryPoint[]
-    trajectories: MonteCarloTrajectory[]
-  } | null
+  predictionData: PredictionData | null
+  monteCarloData?: MonteCarloResult | null
   selectedPointIndex?: number | null
   onPointSelect?: (index: number | null) => void
   launchLat?: number
@@ -163,19 +145,7 @@ export function TrajectoryMap({
     if (selectedPointIndex !== null && selectedPointIndex !== undefined) {
       return selectedPointIndex
     }
-    if (!monteCarloData || !monteCarloData.points || monteCarloData.points.length === 0) {
-      return null
-    }
-    let bestIdx = 0
-    let minDiff = Math.abs(monteCarloData.points[0]?.deviation_sigma ?? 0)
-    for (let i = 1; i < monteCarloData.points.length; i++) {
-      const diff = Math.abs(monteCarloData.points[i]?.deviation_sigma ?? 0)
-      if (diff < minDiff) {
-        minDiff = diff
-        bestIdx = i
-      }
-    }
-    return bestIdx
+    return monteCarloData ? findClosestSigmaIndex(monteCarloData.points) : null
   }, [selectedPointIndex, monteCarloData])
 
   const deckLayers = useMemo(() => {
@@ -377,7 +347,9 @@ export function TrajectoryMap({
           longitude: 135,
           latitude: 35,
           zoom: 5,
+          pitch: 60,
         }}
+        maxPitch={85}
         style={{ width: "100%", height: "100%" }}
         mapStyle="https://tiles.openfreemap.org/styles/liberty"
         minZoom={2}
@@ -438,6 +410,14 @@ export function TrajectoryMap({
           </div>
         </div>
       )}
+
+      <TrajectorySummary
+        predictionData={predictionData}
+        monteCarloData={monteCarloData}
+        selectedPointIndex={selectedPointIndex}
+        launchLat={launchLat}
+        launchLon={launchLon}
+      />
     </div>
   )
 }

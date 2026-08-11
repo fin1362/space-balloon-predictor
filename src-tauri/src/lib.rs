@@ -31,6 +31,7 @@ struct TrajectoryPoint {
     lat: f64,
     lon: f64,
     alt: f64,
+    time: f64,
 }
 
 #[derive(Serialize)]
@@ -229,6 +230,7 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
             lat: s.lat,
             lon: s.lon,
             alt: s.alt,
+            time: s.time,
         })
         .collect();
 
@@ -239,6 +241,7 @@ fn trajectory_to_result(trajectory: &Trajectory, launch_site: Geodetic) -> Simul
                 lat: s.lat,
                 lon: s.lon,
                 alt: s.alt,
+                time: s.time,
             })
             .collect()
     } else {

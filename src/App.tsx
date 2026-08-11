@@ -4,39 +4,13 @@ import { TrajectoryMap } from "@/components/trajectory-map"
 import { useState, useCallback } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
+import type { MonteCarloResult, PredictionData } from "@/types"
 
 const DEFAULT_LAT = PRESETS[0].lat
 const DEFAULT_LON = PRESETS[0].lon
 
-interface MonteCarloPoint {
-  landing_lat: number
-  landing_lon: number
-  burst_altitude: number
-  deviation_sigma: number
-}
-
-interface TrajectoryPoint {
-  lat: number
-  lon: number
-  alt: number
-}
-
-interface MonteCarloTrajectory {
-  ascent_path: TrajectoryPoint[]
-  descent_path: TrajectoryPoint[]
-}
-
-interface MonteCarloResult {
-  points: MonteCarloPoint[]
-  mean_landing_lat: number
-  mean_landing_lon: number
-  mean_ascent_path: TrajectoryPoint[]
-  mean_descent_path: TrajectoryPoint[]
-  trajectories: MonteCarloTrajectory[]
-}
-
 function App() {
-  const [predictionData, setPredictionData] = useState<any>(null)
+  const [predictionData, setPredictionData] = useState<PredictionData | null>(null)
   const [monteCarloData, setMonteCarloData] = useState<MonteCarloResult | null>(null)
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null)
   const [progress, setProgress] = useState<ProgressInfo | null>(null)
@@ -80,7 +54,7 @@ function App() {
         console.log("Monte Carlo result:", result)
         setMonteCarloData(result)
       } else {
-        const result = await invoke("run_simulation", {
+        const result = await invoke<PredictionData>("run_simulation", {
           launchLat: values.launchLat,
           launchLon: values.launchLon,
           launchAlt: 10.0,
