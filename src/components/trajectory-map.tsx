@@ -1,6 +1,6 @@
 import { Map, Marker, useMap } from "@vis.gl/react-maplibre"
 import { MapboxOverlay } from "@deck.gl/mapbox"
-import { PathLayer, ScatterplotLayer } from "@deck.gl/layers"
+import { LineLayer, PathLayer, ScatterplotLayer } from "@deck.gl/layers"
 import maplibregl from "maplibre-gl"
 import { useMemo, useEffect, useCallback, useState, useRef } from "react"
 import { TrajectorySummary } from "@/components/trajectory-summary"
@@ -12,6 +12,26 @@ import type {
   TrajectoryPoint,
 } from "@/types"
 import "../maplibre-gl.css"
+
+function tinyCirclePath(
+  lon: number,
+  lat: number,
+  alt: number,
+  radiusMeters: number,
+): [number, number, number][] {
+  const mPerDegLat = 111320
+  const mPerDegLon = mPerDegLat * Math.cos((lat * Math.PI) / 180)
+  const pts: [number, number, number][] = []
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2
+    pts.push([
+      lon + (radiusMeters * Math.cos(a)) / mPerDegLon,
+      lat + (radiusMeters * Math.sin(a)) / mPerDegLat,
+      alt,
+    ])
+  }
+  return pts
+}
 
 interface TrajectoryMapProps {
   predictionData: PredictionData | null
@@ -116,6 +136,29 @@ export function TrajectoryMap({
   onMapClick,
 }: TrajectoryMapProps) {
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null)
+  const [chartFocusPoint, setChartFocusPoint] = useState<
+    (TrajectoryPoint & { leg: "ascent" | "descent" }) | null
+  >(null)
+
+  const handleChartFocus = useCallback(
+    (point: (TrajectoryPoint & { leg: "ascent" | "descent" }) | null) => {
+      setChartFocusPoint((prev) => {
+        if (prev === null && point === null) return prev
+        if (
+          prev !== null &&
+          point !== null &&
+          prev.lat === point.lat &&
+          prev.lon === point.lon &&
+          prev.alt === point.alt &&
+          prev.leg === point.leg
+        ) {
+          return prev
+        }
+        return point
+      })
+    },
+    [],
+  )
 
   const handleMapClick = useCallback((e: any) => {
     if (!mapSelectionMode || !onMapClick) return
@@ -148,6 +191,16 @@ export function TrajectoryMap({
     return monteCarloData ? findClosestSigmaIndex(monteCarloData.points) : null
   }, [selectedPointIndex, monteCarloData])
 
+  const burstPos = useMemo(() => {
+    const pts = allPoints ?? []
+    if (pts.length === 0) return null
+    let peak = pts[0]
+    for (const p of pts) {
+      if (p.alt > peak.alt) peak = p
+    }
+    return { lat: peak.lat, lon: peak.lon, alt: peak.alt }
+  }, [allPoints])
+
   const deckLayers = useMemo(() => {
     const layers: any[] = []
 
@@ -176,6 +229,19 @@ export function TrajectoryMap({
                 jointRounded: true,
               }),
             )
+            layers.push(
+              new PathLayer({
+                id: "mc-hovered-ascent-ground",
+                data: [{ path: hoverAscent.map(([lon, lat]) => [lon, lat, 0]) }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [255, 100, 100, 40],
+                widthUnits: "pixels",
+                getWidth: 0.75,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
           }
 
           if (hoverDescent.length >= 2) {
@@ -187,6 +253,19 @@ export function TrajectoryMap({
                 getColor: [100, 160, 255, 80],
                 widthUnits: "pixels",
                 getWidth: 4,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
+            layers.push(
+              new PathLayer({
+                id: "mc-hovered-descent-ground",
+                data: [{ path: hoverDescent.map(([lon, lat]) => [lon, lat, 0]) }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [100, 160, 255, 40],
+                widthUnits: "pixels",
+                getWidth: 0.75,
                 billboard: true,
                 rounded: true,
                 jointRounded: true,
@@ -216,6 +295,19 @@ export function TrajectoryMap({
                 jointRounded: true,
               }),
             )
+            layers.push(
+              new PathLayer({
+                id: "mc-selected-ascent-ground",
+                data: [{ path: selAscent.map(([lon, lat]) => [lon, lat, 0]) }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [255, 100, 100, 240],
+                widthUnits: "pixels",
+                getWidth: 0.75,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
           }
 
           if (selDescent.length >= 2) {
@@ -227,6 +319,19 @@ export function TrajectoryMap({
                 getColor: [100, 160, 255, 240],
                 widthUnits: "pixels",
                 getWidth: 5,
+                billboard: true,
+                rounded: true,
+                jointRounded: true,
+              }),
+            )
+            layers.push(
+              new PathLayer({
+                id: "mc-selected-descent-ground",
+                data: [{ path: selDescent.map(([lon, lat]) => [lon, lat, 0]) }],
+                getPath: (d: { path: [number, number, number][] }) => d.path,
+                getColor: [100, 160, 255, 240],
+                widthUnits: "pixels",
+                getWidth: 0.75,
                 billboard: true,
                 rounded: true,
                 jointRounded: true,
@@ -294,9 +399,22 @@ export function TrajectoryMap({
             id: "ascent-line-3d",
             data: [{ path: ascentPath }],
             getPath: (d: { path: [number, number, number][] }) => d.path,
-            getColor: [239, 68, 68, 220],
+            getColor: [239, 68, 68, 255],
             widthUnits: "pixels",
             getWidth: 4,
+            billboard: true,
+            rounded: true,
+            jointRounded: true,
+          }),
+        )
+        layers.push(
+          new PathLayer({
+            id: "ascent-line-ground",
+            data: [{ path: ascentPath.map(([lon, lat]) => [lon, lat, 0]) }],
+            getPath: (d: { path: [number, number, number][] }) => d.path,
+            getColor: [239, 68, 68, 255],
+            widthUnits: "pixels",
+            getWidth: 0.75,
             billboard: true,
             rounded: true,
             jointRounded: true,
@@ -310,9 +428,22 @@ export function TrajectoryMap({
             id: "descent-line-3d",
             data: [{ path: descentPath }],
             getPath: (d: { path: [number, number, number][] }) => d.path,
-            getColor: [59, 130, 246, 220],
+            getColor: [59, 130, 246, 255],
             widthUnits: "pixels",
             getWidth: 4,
+            billboard: true,
+            rounded: true,
+            jointRounded: true,
+          }),
+        )
+        layers.push(
+          new PathLayer({
+            id: "descent-line-ground",
+            data: [{ path: descentPath.map(([lon, lat]) => [lon, lat, 0]) }],
+            getPath: (d: { path: [number, number, number][] }) => d.path,
+            getColor: [59, 130, 246, 255],
+            widthUnits: "pixels",
+            getWidth: 0.75,
             billboard: true,
             rounded: true,
             jointRounded: true,
@@ -321,8 +452,58 @@ export function TrajectoryMap({
       }
     }
 
+    if (burstPos) {
+      layers.push(
+        new PathLayer({
+          id: "burst-point-circle",
+          data: [{ path: tinyCirclePath(burstPos.lon, burstPos.lat, burstPos.alt, 20) }],
+          getPath: (d: { path: [number, number, number][] }) => d.path,
+          getColor: [255, 215, 0, 255],
+          widthUnits: "pixels",
+          getWidth: 6,
+          billboard: true,
+          rounded: true,
+          jointRounded: true,
+          pickable: false,
+        }),
+      )
+    }
+
+    if (chartFocusPoint) {
+      const { lon, lat, alt } = chartFocusPoint
+      layers.push(
+        new LineLayer({
+          id: "chart-focus-leader",
+          data: [{ source: [lon, lat, 0], target: [lon, lat, alt] }],
+          getSourcePosition: (d: { source: [number, number, number] }) => d.source,
+          getTargetPosition: (d: { target: [number, number, number] }) => d.target,
+          getColor: [234, 179, 8, 160],
+          getWidth: 4,
+          widthUnits: "pixels",
+          getDashArray: [6, 4],
+        }),
+      )
+      const dotColor: [number, number, number, number] = chartFocusPoint.leg === "ascent"
+        ? [239, 68, 68, 255]
+        : [59, 130, 246, 255]
+      layers.push(
+        new PathLayer({
+          id: "chart-focus-dot",
+          data: [{ path: tinyCirclePath(lon, lat, alt, 10) }],
+          getPath: (d: { path: [number, number, number][] }) => d.path,
+          getColor: dotColor,
+          widthUnits: "pixels",
+          getWidth: 8,
+          billboard: true,
+          rounded: true,
+          jointRounded: true,
+          pickable: false,
+        }),
+      )
+    }
+
     return layers
-  }, [predictionData, monteCarloData, activeSelectedIndex, hoveredPointIndex, onPointSelect])
+  }, [predictionData, monteCarloData, activeSelectedIndex, hoveredPointIndex, chartFocusPoint, burstPos, onPointSelect])
 
   const landingPos = useMemo(() => {
     if (monteCarloData) return null
@@ -417,6 +598,7 @@ export function TrajectoryMap({
         selectedPointIndex={selectedPointIndex}
         launchLat={launchLat}
         launchLon={launchLon}
+        onPointHover={handleChartFocus}
       />
     </div>
   )

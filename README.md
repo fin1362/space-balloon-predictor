@@ -1,7 +1,26 @@
-# Tauri + React + Typescript
+# Space Balloon Predictor
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+高高度気球の軌道を予測するGUIアプリケーション。
 
-## Recommended IDE Setup
+## インストール
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+Releaseから使用しているOSに合ったファイルをダウンロードしてください。
+
+## 使い方
+
+1. 左のパネルで各種パラメーター（放球位置・放球日・放球時刻・上昇速度・落下速度・
+   バースト高度）を入力します。
+
+   - **放球位置**：プリセットから選択するほか、緯度・経度の直接入力、あるいは
+     地図上をクリックして指定できます。
+   - **放球日 / 放球時刻**：気球を放つ日時を24時間形式（例: `13:00`）で指定します。
+   - **上昇速度**：気球が上昇する速度（m/s）。
+   - **落下速度**：バースト後、落下するときの速度（m/s）。
+   - **バースト高度**：気球が破裂して落下を開始する高度（m）。
+
+2. 必要に応じて「モンテカルロ法」を有効にすると、バースト高度の標準偏差と
+   サンプル数（1〜200）を指定でき、着地点の確率分布を推定できます。
+
+3. 「予測」ボタンを押すと、放球時刻の気象データを自動で取得・解析し、
+   軌道をシミュレーションします。結果は地図上に表示され、高度–時刻のチャートでも
+   確認できます。

@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useMemo, useRef } from "react"
 import {
   ResponsiveContainer,
   LineChart,
@@ -17,6 +17,7 @@ interface AltitudeTimeChartProps {
   descent: TrajectoryPoint[]
   meanAscent?: TrajectoryPoint[]
   meanDescent?: TrajectoryPoint[]
+  onPointHover?: (point: (TrajectoryPoint & { leg: "ascent" | "descent" }) | null) => void
 }
 
 const TROPOPAUSE_M = 11_000
@@ -42,7 +43,11 @@ export function AltitudeTimeChart({
   descent,
   meanAscent,
   meanDescent,
+  onPointHover,
 }: AltitudeTimeChartProps) {
+  const lastEmittedRef = useRef<
+    { lat: number; lon: number; alt: number; time: number; leg: "ascent" | "descent" } | null
+  >(null)
   const ascentData = useMemo(() => toPoints(ascent), [ascent])
   const descentData = useMemo(() => toPoints(descent), [descent])
   const meanAscentData = useMemo(() => (meanAscent ? toPoints(meanAscent) : []), [meanAscent])
@@ -163,15 +168,59 @@ export function AltitudeTimeChart({
           />
           <Tooltip
             cursor={false}
-            labelFormatter={(label) => `${Number(label).toFixed(1)}分`}
-            formatter={(value) => [`${Math.round(Number(value)).toLocaleString()} m`, "高度"]}
-            contentStyle={{
-              fontSize: 12,
-              borderRadius: 6,
-              background: "var(--background)",
-              border: "1px solid var(--border)",
-              color: "var(--foreground)",
-              boxShadow: "0 2px 8px rgb(0 0 0 / 15%)",
+            content={(props) => {
+              const active = props.active
+              const payload = props.payload as unknown as
+                | { payload?: ChartPoint; value?: number }[]
+                | undefined
+              const datum = active && payload?.length ? payload[0].payload : undefined
+              if (onPointHover) {
+                const hasPos =
+                  datum &&
+                  Number.isFinite(datum.lat) &&
+                  Number.isFinite(datum.lon) &&
+                  Number.isFinite(datum.alt)
+                const leg: "ascent" | "descent" = datum?.leg === "descent" ? "descent" : "ascent"
+                const emitted = hasPos
+                  ? { lat: datum!.lat, lon: datum!.lon, alt: datum!.alt, time: datum!.t * 60, leg }
+                  : null
+                const prev = lastEmittedRef.current
+                const unchanged =
+                  (emitted === null && prev === null) ||
+                  (emitted !== null &&
+                    prev !== null &&
+                    prev.lat === emitted.lat &&
+                    prev.lon === emitted.lon &&
+                    prev.alt === emitted.alt &&
+                    prev.time === emitted.time &&
+                    prev.leg === emitted.leg)
+                if (!unchanged) {
+                  lastEmittedRef.current = emitted
+                  onPointHover(emitted)
+                }
+              }
+              const label = active && props.label !== undefined ? props.label : null
+              const value = active && payload?.length ? payload[0].value : undefined
+              return (
+                <div
+                  style={{
+                    fontSize: 12,
+                    borderRadius: 6,
+                    background: "var(--background)",
+                    border: "1px solid var(--border)",
+                    color: "var(--foreground)",
+                    boxShadow: "0 2px 8px rgb(0 0 0 / 15%)",
+                    padding: "4px 8px",
+                  }}
+                >
+                  {label !== null && (
+                    <p className="text-muted-foreground">{`${Number(label).toFixed(1)}分`}</p>
+                  )}
+                  {value !== undefined && (
+                    <p>{`${Math.round(Number(value)).toLocaleString()} m`}</p>
+                  )}
+                </div>
+              )
             }}
           />
           <ReferenceLine

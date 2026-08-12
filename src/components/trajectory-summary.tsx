@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import { Navigation, Timer, Gauge } from "lucide-react"
 import { AltitudeTimeChart } from "@/components/altitude-time-chart"
 import { findClosestSigmaIndex, haversineKm } from "@/lib/geo"
-import type { MonteCarloResult, PredictionData } from "@/types"
+import type { MonteCarloResult, PredictionData, TrajectoryPoint } from "@/types"
 
 interface TrajectorySummaryProps {
   predictionData: PredictionData | null
@@ -10,6 +10,7 @@ interface TrajectorySummaryProps {
   selectedPointIndex?: number | null
   launchLat?: number
   launchLon?: number
+  onPointHover?: (point: (TrajectoryPoint & { leg: "ascent" | "descent" }) | null) => void
 }
 
 function formatDuration(totalS: number | undefined): string {
@@ -61,6 +62,7 @@ export function TrajectorySummary({
   selectedPointIndex = null,
   launchLat,
   launchLon,
+  onPointHover,
 }: TrajectorySummaryProps) {
   const activeSelectedIndex = useMemo(() => {
     if (!monteCarloData) return null
@@ -149,6 +151,7 @@ export function TrajectorySummary({
           descent={descent}
           meanAscent={meanAscent}
           meanDescent={meanDescent}
+          onPointHover={onPointHover}
         />
       </div>
     </div>
