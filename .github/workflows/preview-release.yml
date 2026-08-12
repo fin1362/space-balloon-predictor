@@ -2,7 +2,7 @@ name: Preview Release
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 concurrency:
@@ -11,6 +11,8 @@ concurrency:
 
 jobs:
   build:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +66,8 @@ jobs:
 
   cleanup:
     needs: build
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup old preview releases
