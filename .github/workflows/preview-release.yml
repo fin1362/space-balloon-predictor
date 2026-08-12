@@ -1,0 +1,80 @@
+name: Preview Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: preview-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            args: ''
+          - os: windows-latest
+            args: '--no-self-update'
+          - os: macos-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Package and publish preview
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: preview-${{ github.sha }}
+          releaseName: "Preview ${{ github.sha }}"
+          releaseBody: "Auto-generated preview release for commit `${{ github.sha }}`."
+          prerelease: true
+          publish: true
+
+  cleanup:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup old preview releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASES=$(gh release list --limit 100 --json tagName -q '.[] | select(.tagName | startswith("preview-")) | .tagName')
+          CURRENT="preview-${{ github.sha }}"
+          for TAG in $RELEASES; do
+            if [ "$TAG" != "$CURRENT" ]; then
+              echo "Deleting old preview release: $TAG"
+              gh release delete "$TAG" --yes --cleanup-tag
+            fi
+          done
