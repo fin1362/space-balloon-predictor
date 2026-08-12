@@ -93,7 +93,7 @@ function App() {
       />
       <main className="absolute inset-0 w-screen h-screen z-0">
         <div className="absolute top-4 left-4 z-20">
-          <SidebarTrigger className="bg-background border shadow-sm" />
+          <SidebarTrigger className="bg-sidebar text-sidebar-foreground shadow-sm ring-1 ring-sidebar-border" />
         </div>
         <TrajectoryMap
           predictionData={predictionData}

@@ -575,7 +575,7 @@ export function TrajectoryMap({
       </Map>
 
       {monteCarloData && monteCarloData.points.length > 0 && (
-        <div className="absolute top-4 right-4 z-10 bg-background/90 border rounded-lg p-3 text-xs space-y-1.5">
+        <div className="absolute top-4 right-4 z-10 bg-sidebar/95 text-sidebar-foreground rounded-lg p-3 text-xs space-y-1.5 shadow-sm ring-1 ring-sidebar-border">
           <p className="font-medium text-[11px] mb-1">偏差 (σ)</p>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-[rgb(34,197,94)]" />

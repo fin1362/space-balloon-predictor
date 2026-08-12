@@ -18,6 +18,7 @@
     "@tailwindcss/vite": "^4.3.1",
     "@tanstack/react-form": "^1.33.0",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2",
     "@vis.gl/react-maplibre": "^8.1.1",
     "class-variance-authority": "^0.7.1",

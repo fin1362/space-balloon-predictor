@@ -1,7 +1,9 @@
-import { useMemo } from "react"
-import { Navigation, Timer, Gauge } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Navigation, Timer, Gauge, Download } from "lucide-react"
 import { AltitudeTimeChart } from "@/components/altitude-time-chart"
+import { Button } from "@/components/ui/button"
 import { findClosestSigmaIndex, haversineKm } from "@/lib/geo"
+import { buildTrajectoryKml, saveKmlFile } from "@/lib/kml"
 import type { MonteCarloResult, PredictionData, TrajectoryPoint } from "@/types"
 
 interface TrajectorySummaryProps {
@@ -64,6 +66,7 @@ export function TrajectorySummary({
   launchLon,
   onPointHover,
 }: TrajectorySummaryProps) {
+  const [exportFeedback, setExportFeedback] = useState<"idle" | "saved" | "error">("idle")
   const activeSelectedIndex = useMemo(() => {
     if (!monteCarloData) return null
     if (selectedPointIndex !== null && selectedPointIndex !== undefined) {
@@ -113,8 +116,37 @@ export function TrajectorySummary({
   const meanAscent = isMonteCarlo ? monteCarloData.mean_ascent_path : undefined
   const meanDescent = isMonteCarlo ? monteCarloData.mean_descent_path : undefined
 
+  const burstPoint = ascent[ascent.length - 1]
+  const landingLat = isMonteCarlo ? point?.landing_lat : single?.landing_lat
+  const landingLon = isMonteCarlo ? point?.landing_lon : single?.landing_lon
+
+  const handleExportKml = async () => {
+    const kml = buildTrajectoryKml({
+      ascent,
+      descent,
+      launchLat,
+      launchLon,
+      burstLat: burstPoint?.lat,
+      burstLon: burstPoint?.lon,
+      burstAlt: burstPoint?.alt,
+      landingLat,
+      landingLon,
+      monteCarloPoints: isMonteCarlo ? monteCarloData.points : undefined,
+    })
+    const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)
+    try {
+      const saved = await saveKmlFile(`trajectory-${stamp}.kml`, kml)
+      if (!saved) return
+      setExportFeedback("saved")
+      setTimeout(() => setExportFeedback("idle"), 2000)
+    } catch (e) {
+      console.error("Failed to save KML:", e)
+      setExportFeedback("error")
+    }
+  }
+
   return (
-    <div className="absolute right-4 bottom-12 z-20 bg-background border rounded-lg p-3 text-sm space-y-1.5 w-72 shadow-sm">
+    <div className="absolute right-4 bottom-12 z-20 bg-sidebar text-sidebar-foreground rounded-lg p-3 text-sm space-y-1.5 w-72 shadow-sm ring-1 ring-sidebar-border">
       <p className="font-medium text-sm mb-1">
         軌道の概要
       </p>
@@ -154,6 +186,21 @@ export function TrajectorySummary({
           onPointHover={onPointHover}
         />
       </div>
+
+      <Button
+        type="button"
+        variant={exportFeedback === "error" ? "destructive" : "outline"}
+        size="sm"
+        onClick={handleExportKml}
+        className="w-full"
+      >
+        <Download className="size-3.5" />
+        {exportFeedback === "saved"
+          ? "保存しました"
+          : exportFeedback === "error"
+            ? "保存に失敗しました"
+            : "軌道のKMLをエクスポート"}
+      </Button>
     </div>
   )
 }

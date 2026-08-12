@@ -480,12 +480,18 @@ async fn run_monte_carlo(
     .map_err(|e| format!("Task failed: {}", e))?
 }
 
+#[tauri::command]
+fn save_kml(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| format!("Failed to write KML file: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![run_simulation, run_monte_carlo])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![run_simulation, run_monte_carlo, save_kml])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
