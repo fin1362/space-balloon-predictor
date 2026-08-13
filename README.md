@@ -25,6 +25,50 @@ Releaseから使用しているOSに合ったファイルをダウンロード�
    軌道をシミュレーションします。結果は地図上に表示され、高度–時刻のチャートでも
    確認できます。
 
+## 開発者向け
+
+### リポジトリ構成
+
+```
+├─ src/          # React (Vite) フロントエンド
+├─ src-tauri/    # Tauri バックエンド (Rust)
+└─ crates/core/  # 軌道予測ライブラリ (Rust)
+```
+
+### 技術スタック
+
+- **フロントエンド**: React 19 / TypeScript / Vite 7 / Tailwind CSS 4 / deck.gl + MapLibre GL
+- **バックエンド**: Tauri 2 / Rust
+- **コアライブラリ**: `crates/core`（GRIB 気象データ解析・軌道シミュレーション）
+
+### 開発環境のセットアップ
+
+- Rust
+- Node.js
+
+のインストールが必要です。
+
+```bash
+npm install
+```
+
+### 開発サーバーの起動
+
+```bash
+npm run tauri dev
+```
+
+### ビルド
+
+```bash
+npm run tauri build
+```
+
+### コアライブラリ
+
+軌道予測のロジックは [crates/core](crates/core/README.md) に分離されています。
+API・CLIの使い方の詳細は上記の README を参照してください。
+
 ## ライセンス
 
 [MIT License](LICENSE)
