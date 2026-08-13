@@ -73,4 +73,4 @@ API・CLIの使い方の詳細は上記の README を参照してください。
 
 [MIT License](LICENSE)
 
-Copyright (c) 2026 fin1362
+Copyright (c) 2026 PLANET-Q
