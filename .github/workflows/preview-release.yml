@@ -70,6 +70,8 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Cleanup old preview releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
